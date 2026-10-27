@@ -43,9 +43,57 @@ See [docs/install.md](docs/install.md) for installing the result by hand.
 
 ## Configuration
 
-Settings live in plain files under `~/.config/montty/` (`config.toml`, `profiles/*.toml`, `schemes/*.json`). With no
-files montty behaves like a stock Tilix-style terminal. The full reference, including every key binding, is in
-[docs/config.md](docs/config.md).
+Settings live in plain files under `~/.config/montty/`. There is no settings window: edit the files, and montty applies
+every change as soon as you save, with no restart. A file with a mistake keeps its last good version and a toast
+names the file and line.
+
+```
+~/.config/montty/
+  config.toml           window-wide settings and key bindings (optional)
+  profiles/<name>.toml  one file per profile
+  schemes/<name>.json   extra color schemes in Tilix's JSON format (optional)
+  sessions/<name>.json  saved sessions
+```
+
+The ≡ menu has `Edit config` (opens `config.toml` in `$VISUAL`/`$EDITOR` in a new tab), `Open config folder` and
+`Keyboard shortcuts`. The full reference, including every key binding, is in [docs/config.md](docs/config.md).
+
+### Profiles
+
+A profile is how a pane looks and what it runs: font, color scheme, colors, cursor, opacity, padding, scrollback,
+shell, background image.
+
+- **First run:** montty writes `profiles/default.toml` with every setting at its default and a comment on each. Change
+  what you want and save; all panes using it restyle live.
+- **New profile:** copy it to another name, e.g. `profiles/work.toml`. The file name is the profile's id; `name = "Work"`
+  is what the menu shows. Every key is optional.
+
+  ```toml
+  name = "Work"
+  font = "JetBrains Mono"
+  font_size = 12
+  scheme = "solarized-dark"   # built-in: tango, linux, solarized-dark/-light, monokai, material, orchis, yaru, base16-twilight-dark
+  opacity = 0.9
+  ```
+
+- **Use it:** hover a pane and click the **Profile** button in its top-right overlay, then pick a profile; only that
+  pane changes and its shell keeps running. A split starts with the profile of the pane it came from.
+- **Default:** new windows and tabs use `default_profile = "work"` from `config.toml`, or `montty --profile work`.
+
+### Sessions
+
+A session is a window's layout: its tabs, splits, each pane's profile and working directory. Shells start fresh when
+it opens; scrollback isn't saved.
+
+- **Save:** `Ctrl+Shift+S` (or `Save session…` in the ≡ menu), type a name, Enter. It goes to `sessions/<name>.json`;
+  saving under the same name again replaces it.
+- **Open:** `Ctrl+Shift+O` (or `Open session ▸` in the ≡ menu) and pick a name. A window that is still untouched (one
+  pane, nothing typed) turns into the session; otherwise it opens in a new window. From the command line:
+  `montty --session NAME`.
+- **Edit or delete:** sessions are readable JSON files; edit one in any editor (for example to set a pane's `command`),
+  or delete the file to drop it. The format is described in [docs/config.md](docs/config.md#the-session-file).
+- **Pick up where you left off:** with `restore_last_session = true` in `config.toml`, montty keeps your last window's
+  layout in `sessions/_last.json` and reopens it at the next start.
 
 Other docs: [docs/design.md](docs/design.md) (how montty is built and why),
 [docs/bench.md](docs/bench.md) (performance measurements and the benchmark procedure).
