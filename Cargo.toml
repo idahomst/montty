@@ -1,6 +1,6 @@
 [package]
 name = "montty"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A tiling terminal emulator inspired by Tilix, without GTK"
 license = "MIT"
