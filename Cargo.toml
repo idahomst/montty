@@ -1,0 +1,57 @@
+[package]
+name = "montty"
+version = "0.1.0"
+edition = "2024"
+description = "A tiling terminal emulator inspired by Tilix, without GTK"
+license = "MIT"
+repository = "https://github.com/idahomst/montty"
+readme = "README.md"
+keywords = ["terminal", "terminal-emulator", "tiling", "tilix", "opengl"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+alacritty_terminal = "=0.26.0"
+winit = { version = "0.30.13", default-features = false, features = ["x11", "wayland", "wayland-dlopen", "rwh_06"] }
+glutin = { version = "0.32.3", default-features = false, features = ["egl", "glx", "x11", "wayland"] }
+glutin-winit = { version = "0.5.0", default-features = false, features = ["egl", "glx", "x11", "wayland"] }
+raw-window-handle = "0.6"
+glow = "0.16"
+fontdb = "0.24"
+swash = "0.2.10"
+# Maps each font file once and shares it between FontSets and zoom levels
+# (src/font/mod.rs, shared_file). Already in the tree via fontdb and winit.
+memmap2 = "0.9"
+# Already loaded by winit on X11 (libX11, libXi); see src/device_events.rs.
+x11-dl = "2.21"
+# Display width of chrome labels (wide chars take 2 cells). Already in the tree via alacritty_terminal.
+unicode-width = "0.2"
+# tcgetpgrp on the PTY master (Pane::has_foreground_child). Already in the tree via alacritty_terminal.
+libc = "0.2"
+# Config files (src/config): derive the raw structs that config.toml is parsed into.
+serde = { version = "1", features = ["derive"] }
+# Parses config.toml (and later profiles) with spans, so errors carry line numbers.
+toml = { version = "1.1", default-features = false, features = ["std", "serde", "parse"] }
+# Parses Tilix JSON color schemes (src/config/scheme.rs); errors carry line numbers.
+serde_json = { version = "1", default-features = false, features = ["std"] }
+# Live reload of the config dir (src/config/watch.rs). Linux uses inotify, which needs no
+# feature; the default `macos_fsevent` is off.
+notify = { version = "8", default-features = false }
+# Background images (src/render/image.rs): PNG decoding, any color type and depth. No default features.
+png = "0.18"
+# Background images: JPEG decoding, pure Rust. `x86` keeps its SIMD paths (a 4K wallpaper decodes
+# in about half the time); `neon` and the rest are off.
+zune-jpeg = { version = "0.5.15", default-features = false, features = ["std", "x86"] }
+# CLIPBOARD and PRIMARY selection (src/clipboard.rs): X11 and Wayland, no GTK/Qt. Wayland
+# attaches to winit's display and loads libwayland at runtime.
+copypasta = { version = "0.10", default-features = false, features = ["x11", "wayland", "wayland-dlopen"] }
+
+[dev-dependencies]
+# Encodes the JPEG fixture in src/render/image.rs tests; pure Rust, tests only.
+jpeg-encoder = { version = "0.7", default-features = false, features = ["std"] }
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+opt-level = 3

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=montty
+Comment=Tiling terminal emulator
+Exec=montty
+Icon=montty
+Terminal=false
+Categories=System;TerminalEmulator;
+StartupWMClass=montty

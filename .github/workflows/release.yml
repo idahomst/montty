@@ -1,0 +1,138 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Version
+        id: version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+          else
+            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Tests need no display: the one that does (tests/device_events.rs) skips itself without $DISPLAY.
+      - name: Test
+        run: cargo test --locked
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Strip
+        run: strip target/release/montty
+
+      - name: Debian package
+        run: packaging/deb/build-deb.sh "${{ steps.version.outputs.version }}" target/release/montty dist
+
+      - name: Tarball
+        run: |
+          v=${{ steps.version.outputs.version }}
+          dir=montty-$v
+          mkdir -p "$dir/bin" "$dir/assets" "$dir/docs"
+          install -m755 target/release/montty "$dir/bin/montty"
+          cp -r assets/icon "$dir/assets/icon"
+          # Only the hicolor tree is installed; keep the master/notes out of the tarball.
+          find "$dir/assets/icon" -mindepth 1 -maxdepth 1 ! -name hicolor -exec rm -rf {} +
+          cp assets/montty.desktop "$dir/assets/"
+          cp LICENSE README.md "$dir/"
+          cp docs/install.md "$dir/docs/"
+          mkdir -p dist
+          tar czf "dist/montty-$v-x86_64-linux.tar.gz" "$dir"
+
+      - name: Source tarball for the Arch build
+        run: |
+          v=${{ steps.version.outputs.version }}
+          mkdir -p src-dist
+          git archive --prefix="montty-$v/" -o "src-dist/montty-$v.tar.gz" HEAD
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source
+          path: src-dist/*
+          if-no-files-found: error
+
+  arch:
+    needs: build
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git rust \
+            libglvnd libx11 libxcursor libxi libxkbcommon libxkbcommon-x11 wayland
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: source
+          path: source
+
+      - name: makepkg
+        run: |
+          # makepkg refuses to run as root.
+          useradd -m builder
+          cp -r packaging/arch /home/builder/build
+          # The tag decides the version; keep the PKGBUILD in step with it.
+          sed -i 's/^pkgver=.*/pkgver=${{ needs.build.outputs.version }}/; s/^pkgrel=.*/pkgrel=1/' /home/builder/build/PKGBUILD
+          cp source/montty-*.tar.gz /home/builder/build/
+          chown -R builder:builder /home/builder/build
+          su builder -c 'cd ~/build && makepkg -f --noconfirm'
+          mkdir -p out
+          cp /home/builder/build/*.pkg.tar.zst out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch
+          path: out/*.pkg.tar.zst
+          if-no-files-found: error
+
+  release:
+    needs: [build, arch]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: files
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch
+          path: files
+
+      - name: List
+        run: ls -l files
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: files/*
+          generate_release_notes: true
+          draft: false

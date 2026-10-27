@@ -1,0 +1,4 @@
+.superpowers/
+/target
+__pycache__/
+docs/superpowers/

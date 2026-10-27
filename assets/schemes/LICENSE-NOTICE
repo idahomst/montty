@@ -1,0 +1,16 @@
+The *.json color schemes in this directory come from Tilix, which is licensed under the
+Mozilla Public License 2.0 (https://www.mozilla.org/MPL/2.0/):
+
+  Source: https://github.com/gnunn1/tilix, directory data/schemes/
+          (https://github.com/gnunn1/tilix/tree/master/data/schemes),
+          identical to the files at commit 46b6a7c6.
+  Copyright: the upstream scheme files carry no copyright line, and Tilix's LICENSE is the
+          unmodified MPL 2.0 text, so there is none to reproduce. Tilix's source files state
+          "This Source Code Form is subject to the terms of the Mozilla Public License,
+          v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain
+          one at http://mozilla.org/MPL/2.0/."
+  Origin: some schemes name theirs in their own "comment" field (base16 Twilight is
+          @chriskempson's base16; linux, solarized-dark, solarized-light and tango are
+          "Taken from Gnome Terminal").
+
+The files are unmodified copies.

@@ -1,0 +1,48 @@
+# Maintainer: Martin Stepanek <38214485+idahomst@users.noreply.github.com>
+pkgname=montty
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='A tiling terminal emulator inspired by Tilix, without GTK'
+arch=('x86_64')
+url='https://github.com/idahomst/montty'
+license=('MIT')
+depends=(glibc gcc-libs libglvnd libx11 libxcursor libxi libxkbcommon libxkbcommon-x11 wayland)
+optdepends=('ttf-dejavu: default monospace font')
+makedepends=(cargo)
+# The file name and the extracted directory (montty-$pkgver) match GitHub's archive of tag v$pkgver.
+# The release workflow puts a tarball with the same name beside this file, so makepkg uses it instead of downloading.
+source=("$pkgname-$pkgver.tar.gz::https://github.com/idahomst/montty/archive/refs/tags/v$pkgver.tar.gz")
+# SKIP here because the tarball is built in CI; an AUR version should pin the real checksum.
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo test --frozen --release --lib
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/montty "$pkgdir/usr/bin/montty"
+  install -Dm644 assets/montty.desktop "$pkgdir/usr/share/applications/montty.desktop"
+  local icon size
+  for icon in assets/icon/hicolor/*/apps/montty.png; do
+    size=$(basename "$(dirname "$(dirname "$icon")")")
+    install -Dm644 "$icon" "$pkgdir/usr/share/icons/hicolor/$size/apps/montty.png"
+  done
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}
