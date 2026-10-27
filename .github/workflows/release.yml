@@ -85,6 +85,7 @@ jobs:
       - name: Install build dependencies
         run: |
           pacman -Syu --noconfirm --needed git rust \
+            fontconfig ttf-dejavu noto-fonts-emoji \
             libglvnd libx11 libxcursor libxi libxkbcommon libxkbcommon-x11 wayland
 
       - uses: actions/checkout@v4

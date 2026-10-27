@@ -63,8 +63,8 @@ Architecture: amd64
 Maintainer: Martin Stepanek <38214485+idahomst@users.noreply.github.com>
 Homepage: https://github.com/idahomst/montty
 Installed-Size: $installed_size
-Depends: libc6, libgcc-s1, libgl1, libegl1, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libwayland-cursor0, libwayland-egl1
-Recommends: fonts-dejavu-core
+Depends: libc6, libgcc-s1, fontconfig, libgl1, libegl1, libx11-6, libx11-xcb1, libxcursor1, libxi6, libxkbcommon0, libxkbcommon-x11-0, libwayland-client0, libwayland-cursor0, libwayland-egl1
+Recommends: fonts-dejavu-core, fonts-noto-color-emoji
 Provides: x-terminal-emulator
 Description: tiling terminal emulator inspired by Tilix, without GTK
  montty splits a window into tiled panes, with tabs, profiles, saved
