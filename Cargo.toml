@@ -36,6 +36,8 @@ serde_json = { version = "1", default-features = false, features = ["std"] }
 # Live reload of the config dir (src/config/watch.rs). Linux uses inotify, which needs no
 # feature; the default `macos_fsevent` is off.
 notify = { version = "8", default-features = false }
+# OSC 7501 msg/title payloads (src/term/status.rs). Already in the tree.
+base64 = { version = "0.22", default-features = false, features = ["std"] }
 # Background images (src/render/image.rs): PNG decoding, any color type and depth. No default features.
 png = "0.18"
 # Background images: JPEG decoding, pure Rust. `x86` keeps its SIMD paths (a 4K wallpaper decodes

@@ -920,6 +920,7 @@ name = "montty"
 version = "0.1.2"
 dependencies = [
  "alacritty_terminal",
+ "base64",
  "copypasta",
  "fontdb",
  "glow",

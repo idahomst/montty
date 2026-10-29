@@ -6,5 +6,6 @@ pub mod links;
 pub mod osc_scan;
 pub mod pane;
 pub mod snapshot;
+pub mod status;
 
 pub use crate::layout::PaneId;
