@@ -38,7 +38,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::{Key, ModifiersState, NamedKey, PhysicalKey};
+use winit::keyboard::{Key, KeyLocation, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{CursorIcon, WindowId};
 
@@ -450,8 +450,19 @@ fn all_layouts(tabs: &Tabs, area: Rect) -> Vec<(PaneId, Rect)> {
 /// when the focused pane's program asked for kitty keyboard events (`kitty`). winit sends synthetic presses for keys already held when the window gains
 /// focus (launching montty from a Ctrl+Alt+T hotkey would type ESC ^T), so
 /// they are ignored, as Alacritty does.
-fn handles_key(state: ElementState, is_synthetic: bool, kitty: bool) -> bool {
-    (state == ElementState::Pressed || kitty) && !is_synthetic
+fn handles_key(is_synthetic: bool) -> bool {
+    !is_synthetic
+}
+
+/// A release `on_key` must not send on: its press ran a binding (forgotten now), or the
+/// modal, find bar or pane drag is up. The key is forgotten either way, so the set can't
+/// swallow a later genuine release.
+fn release_swallowed(
+    binding_keys: &mut HashSet<PhysicalKey>,
+    key: PhysicalKey,
+    ui_has_keys: bool,
+) -> bool {
+    binding_keys.remove(&key) || ui_has_keys
 }
 
 /// How long a pane flashes after its bell.
@@ -881,6 +892,10 @@ impl Window {
             }
             WindowEvent::Focused(f) => {
                 self.window_focused = f;
+                if !f {
+                    // Their releases go to another window.
+                    self.binding_keys.clear();
+                }
                 self.blink_reset();
                 // The menu is a popup: it closes when the window loses focus.
                 if !f {
@@ -900,7 +915,7 @@ impl Window {
                 event,
                 is_synthetic,
                 ..
-            } if handles_key(event.state, is_synthetic, self.kitty_active()) => self.on_key(&event),
+            } if handles_key(is_synthetic) => self.on_key(&event),
             WindowEvent::CursorMoved { position, .. } => self.on_cursor_moved(position),
             WindowEvent::CursorLeft { .. } => self.on_cursor_left(),
             WindowEvent::MouseInput { state, button, .. } => self.on_mouse_input(state, button),
@@ -1293,12 +1308,11 @@ impl Window {
     fn on_key(&mut self, event: &KeyEvent) {
         let released = event.state == ElementState::Released;
         // Releases only matter to the PTY: the modal, find bar and pane drag ignore them.
-        if released && (self.modal_open() || self.find.is_some() || self.mouse.pane_drag.is_some())
-        {
-            return;
-        }
-        if released && self.binding_keys.remove(&event.physical_key) {
-            return;
+        if released {
+            let ui = self.modal_open() || self.find.is_some() || self.mouse.pane_drag.is_some();
+            if release_swallowed(&mut self.binding_keys, event.physical_key, ui) {
+                return;
+            }
         }
         self.had_input = true;
         if self.mouse.pane_drag.is_some() && event.logical_key == Key::Named(NamedKey::Escape) {
@@ -1338,6 +1352,10 @@ impl Window {
         };
         let mut term = pane.term.lock();
         let mode = *term.mode();
+        // Releases are only sent when the program asked for events (the lock is taken once).
+        if released && !kitty::active(mode) {
+            return;
+        }
         let kind = match (event.state, event.repeat) {
             (ElementState::Released, _) => KeyEventKind::Release,
             (_, true) => KeyEventKind::Repeat,
@@ -1355,6 +1373,7 @@ impl Window {
                 text,
                 mods,
                 kind,
+                right: event.location == KeyLocation::Right,
             },
             mode,
         );
@@ -2406,12 +2425,24 @@ mod tests {
 
     #[test]
     fn synthetic_presses_are_ignored() {
-        assert!(handles_key(ElementState::Pressed, false, false));
+        assert!(handles_key(false));
         // Keys held while the window gains focus (e.g. the Ctrl+Alt+T that launched us).
-        assert!(!handles_key(ElementState::Pressed, true, false));
-        assert!(!handles_key(ElementState::Released, false, false));
-        assert!(handles_key(ElementState::Released, false, true));
-        assert!(!handles_key(ElementState::Released, true, true));
+        assert!(!handles_key(true));
+    }
+
+    #[test]
+    fn release_of_a_binding_key_is_swallowed_once_even_under_a_modal() {
+        use winit::keyboard::KeyCode;
+        let k = PhysicalKey::Code(KeyCode::KeyT);
+        let mut set = HashSet::from([k]);
+        // A modal is up when the release arrives: swallowed, and forgotten.
+        assert!(release_swallowed(&mut set, k, true));
+        assert!(set.is_empty());
+        // A later genuine release goes through.
+        assert!(!release_swallowed(&mut set, k, false));
+        // Another key's release while the modal is up is swallowed, not recorded.
+        assert!(release_swallowed(&mut set, k, true));
+        assert!(set.is_empty());
     }
 
     fn three_tabs() -> Tabs {

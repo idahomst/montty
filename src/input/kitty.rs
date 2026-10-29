@@ -24,6 +24,8 @@ pub struct KittyKey<'a> {
     pub text: Option<&'a str>,
     pub mods: Mods,
     pub kind: KeyEventKind,
+    /// A modifier key on the right side of the keyboard (`KeyLocation::Right`).
+    pub right: bool,
 }
 
 /// How a key is written once it is escape-coded.
@@ -62,7 +64,7 @@ pub fn encode_kitty(key: &KittyKey<'_>, mode: TermMode) -> Option<Vec<u8>> {
     let non_shift = mods.alt || mods.ctrl || mods.logo;
 
     let (form, text_key) = match key.key {
-        Key::Named(n) => match named_form(*n) {
+        Key::Named(n) => match named_form(*n, key.right) {
             Some(NamedForm::Modifier(code, bit)) => {
                 if !all {
                     return None;
@@ -96,8 +98,9 @@ pub fn encode_kitty(key: &KittyKey<'_>, mode: TermMode) -> Option<Vec<u8>> {
             all || bits != 0
         }
         Form::U(27) => true,
-        // A text key's press is text; its release is only visible as an escape.
-        Form::U(_) if text_key => all || non_shift || kind == KeyEventKind::Release,
+        // Text keys are text unless modified; without flag 8 they have no release or repeat
+        // events (a repeat is text again, the caller's legacy fallback).
+        Form::U(_) if text_key => all || non_shift,
         Form::U(_) => true,
         // Plain functional keys stay legacy unless events or `all` ask for them.
         Form::Letter(_) | Form::Tilde(_) => all || bits != 0 || kind != KeyEventKind::Press,
@@ -186,7 +189,12 @@ enum NamedForm {
     Modifier(u32, u32),
 }
 
-fn named_form(n: NamedKey) -> Option<NamedForm> {
+/// The right-hand modifier codes (57447..) follow the left ones (57441..) by six.
+fn side(right: bool) -> u32 {
+    if right { 6 } else { 0 }
+}
+
+fn named_form(n: NamedKey, right: bool) -> Option<NamedForm> {
     use Form::{Letter, Tilde, U};
     let f = match n {
         NamedKey::Enter => U(13),
@@ -205,7 +213,8 @@ fn named_form(n: NamedKey) -> Option<NamedForm> {
         NamedKey::PageDown => Tilde(6),
         NamedKey::F1 => Letter(b'P'),
         NamedKey::F2 => Letter(b'Q'),
-        NamedKey::F3 => Letter(b'R'),
+        // Not `CSI R`: the kitty spec dropped it, it clashes with the cursor position report.
+        NamedKey::F3 => Tilde(13),
         NamedKey::F4 => Letter(b'S'),
         NamedKey::F5 => Tilde(15),
         NamedKey::F6 => Tilde(17),
@@ -223,11 +232,10 @@ fn named_form(n: NamedKey) -> Option<NamedForm> {
         NamedKey::F18 => U(57381),
         NamedKey::F19 => U(57382),
         NamedKey::F20 => U(57383),
-        // winit doesn't say which side; the left codes.
-        NamedKey::Shift => return Some(NamedForm::Modifier(57441, 1)),
-        NamedKey::Control => return Some(NamedForm::Modifier(57442, 4)),
-        NamedKey::Alt => return Some(NamedForm::Modifier(57443, 2)),
-        NamedKey::Super => return Some(NamedForm::Modifier(57444, 8)),
+        NamedKey::Shift => return Some(NamedForm::Modifier(57441 + side(right), 1)),
+        NamedKey::Control => return Some(NamedForm::Modifier(57442 + side(right), 4)),
+        NamedKey::Alt => return Some(NamedForm::Modifier(57443 + side(right), 2)),
+        NamedKey::Super => return Some(NamedForm::Modifier(57444 + side(right), 8)),
         _ => return None,
     };
     Some(NamedForm::Plain(f))
@@ -269,6 +277,7 @@ mod tests {
                 text,
                 mods,
                 kind,
+                right: false,
             },
             mode,
         )
@@ -313,8 +322,17 @@ mod tests {
     #[test]
     fn event_types() {
         let m = D | E;
+        // A text key has no release or repeat events without flag 8.
         assert_eq!(
             enc(ch("a"), None, None, NONE, KeyEventKind::Release, m),
+            None
+        );
+        assert_eq!(
+            enc(ch("a"), None, None, NONE, KeyEventKind::Repeat, m),
+            None
+        );
+        assert_eq!(
+            enc(ch("a"), None, None, NONE, KeyEventKind::Release, m | A),
             s("\x1b[97;1:3u")
         );
         assert_eq!(
@@ -369,6 +387,36 @@ mod tests {
         assert_eq!(press(nk(NamedKey::F1), NONE, A), s("\x1b[P"));
         // A modifier key alone is nothing without flag 8.
         assert_eq!(press(nk(NamedKey::Shift), SHIFT, D), None);
+    }
+
+    #[test]
+    fn f3_is_tilde_13() {
+        assert_eq!(press(nk(NamedKey::F3), NONE, A), s("\x1b[13~"));
+        assert_eq!(press(nk(NamedKey::F3), CTRL, D), s("\x1b[13;5~"));
+    }
+
+    #[test]
+    fn right_hand_modifiers() {
+        let side = |n: NamedKey, right: bool, mods: Mods| {
+            encode_kitty(
+                &KittyKey {
+                    key: &Key::Named(n),
+                    shifted: None,
+                    text: None,
+                    mods,
+                    kind: KeyEventKind::Press,
+                    right,
+                },
+                A,
+            )
+            .map(|b| String::from_utf8(b).unwrap())
+        };
+        assert_eq!(side(NamedKey::Shift, false, NONE), s("\x1b[57441;2u"));
+        assert_eq!(side(NamedKey::Shift, true, NONE), s("\x1b[57447;2u"));
+        assert_eq!(side(NamedKey::Control, true, NONE), s("\x1b[57448;5u"));
+        assert_eq!(side(NamedKey::Alt, true, NONE), s("\x1b[57449;3u"));
+        assert_eq!(side(NamedKey::Super, true, NONE), s("\x1b[57450;9u"));
+        assert_eq!(side(NamedKey::Control, false, CTRL), s("\x1b[57442;5u"));
     }
 
     #[test]
