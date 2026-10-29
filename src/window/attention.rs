@@ -163,7 +163,8 @@ mod tests {
     #[test]
     fn blocked_shows_when_not_looking_and_returns_after_glance() {
         let mut a = Attention::default();
-        a.status(P, BLOCKED, true);
+        let e = a.status(P, BLOCKED, true);
+        assert!(e.notify.is_none());
         assert_eq!(a.pane_dot(P, true), None);
         assert_eq!(a.pane_dot(P, false).unwrap().level, Level::Blocked);
         a.look(P);
@@ -230,5 +231,81 @@ mod tests {
         assert!(a.pane_dot(2, false).is_some());
         a.reset(2);
         assert_eq!(a.pane_dot(2, false), None);
+    }
+
+    #[test]
+    fn error_shows_failed() {
+        let mut a = Attention::default();
+        a.status(P, "state=error", false);
+        let d = a.pane_dot(P, false).unwrap();
+        assert_eq!((d.level, d.label.as_str()), (Level::Error, "Failed"));
+    }
+
+    #[test]
+    fn newer_mark_replaces_older() {
+        let mut a = Attention::default();
+        a.signal(P, "Bell", false, false);
+        a.status(P, "state=done", false);
+        let d = a.pane_dot(P, false).unwrap();
+        assert_eq!((d.level, d.label.as_str()), (Level::Done, "Done"));
+        a.status(P, "state=error", false);
+        assert_eq!(a.pane_dot(P, false).unwrap().label, "Failed");
+    }
+
+    #[test]
+    fn blocked_outranks_done_on_same_pane() {
+        let mut a = Attention::default();
+        a.status(P, "state=done", false);
+        a.status(P, BLOCKED, false);
+        let d = a.pane_dot(P, false).unwrap();
+        assert_eq!(
+            (d.level, d.label.as_str()),
+            (Level::Blocked, "Needs permission")
+        );
+        // The done mark is still underneath once the block is answered.
+        a.status(P, "state=working", false);
+        assert_eq!(a.pane_dot(P, false).unwrap().level, Level::Done);
+    }
+
+    #[test]
+    fn signal_mark_is_amber_and_outlives_blocked_until_look() {
+        let mut a = Attention::default();
+        a.signal(P, "Bell", false, false);
+        let d = a.pane_dot(P, false).unwrap();
+        assert_eq!((d.level, d.label.as_str()), (Level::Blocked, "Bell"));
+        a.status(P, BLOCKED, false);
+        a.status(P, "state=working", false);
+        assert_eq!(a.pane_dot(P, false).unwrap().label, "Bell");
+        assert!(a.look(P));
+        assert_eq!(a.pane_dot(P, false), None);
+    }
+
+    #[test]
+    fn reset_clears_blocked_record() {
+        let mut a = Attention::default();
+        a.status(P, BLOCKED, false);
+        assert!(a.reset(P).redraw);
+        assert_eq!(a.pane_dot(P, false), None);
+        assert!(!a.reset(P).redraw);
+    }
+
+    #[test]
+    fn look_returns_false_when_nothing_to_clear() {
+        let mut a = Attention::default();
+        assert!(!a.look(P));
+        a.status(P, BLOCKED, false);
+        assert!(!a.look(P));
+    }
+
+    #[test]
+    fn redraw_flags() {
+        let mut a = Attention::default();
+        assert!(a.status(P, BLOCKED, false).redraw);
+        assert!(!a.status(P, BLOCKED, false).redraw);
+        assert!(a.prompt_start(P).redraw);
+        assert!(!a.prompt_start(P).redraw);
+        assert!(a.signal(P, "x", true, false).redraw);
+        assert!(!a.signal(P, "x", true, true).redraw);
+        assert!(!a.status(P, "state=working", true).redraw);
     }
 }
