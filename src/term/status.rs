@@ -87,11 +87,10 @@ fn decode_text(s: &str, max_encoded: usize, max: usize) -> Option<String> {
 /// Parses the payload after `7501;`. `None` discards the whole report.
 pub fn parse_report(payload: &str) -> Option<Report> {
     let mut state: Option<&str> = None;
-    let mut id: Option<&str> = None;
+    let mut id: Option<String> = None;
     let mut kind: Option<&str> = None;
     let mut app: Option<&str> = None;
-    let mut msg: Option<&str> = None;
-    let mut title: Option<&str> = None;
+    let mut msg: Option<String> = None;
     for pair in payload.split(':') {
         let Some((key, value)) = pair.split_once('=') else {
             continue;
@@ -100,35 +99,33 @@ pub fn parse_report(payload: &str) -> Option<Report> {
         if key.is_empty() || !key.bytes().all(|b| b.is_ascii_lowercase()) {
             continue;
         }
+        // Every pair is validated as it is seen, so a bad earlier duplicate still discards the report.
         if key.len() > MAX_KEY {
             return None;
         }
         match key {
             "state" => state = Some(value),
-            "id" => id = Some(value),
+            "id" => {
+                if !valid_id(value) {
+                    return None;
+                }
+                id = Some(value.to_owned());
+            }
             "kind" => kind = Some(value),
-            "app" => app = Some(value),
-            "msg" => msg = Some(value),
-            "title" => title = Some(value),
+            "app" => {
+                if !valid_app(value) {
+                    return None;
+                }
+                app = Some(value);
+            }
+            "msg" => {
+                msg = Some(decode_text(value, MAX_MSG_ENCODED, MAX_MSG)?).filter(|m| !m.is_empty())
+            }
+            "title" => {
+                decode_text(value, MAX_TITLE_ENCODED, MAX_TITLE)?;
+            }
             _ => {}
         }
-    }
-    // Every limit is checked before anything is returned.
-    if let Some(a) = app
-        && !valid_app(a)
-    {
-        return None;
-    }
-    let id = match id {
-        Some(i) if !valid_id(i) => return None,
-        other => other.map(str::to_owned),
-    };
-    let msg = match msg {
-        Some(m) => Some(decode_text(m, MAX_MSG_ENCODED, MAX_MSG)?).filter(|m| !m.is_empty()),
-        None => None,
-    };
-    if let Some(t) = title {
-        decode_text(t, MAX_TITLE_ENCODED, MAX_TITLE)?;
     }
     let state = match state? {
         "clear" => return Some(Report::Clear { id }),
@@ -326,6 +323,34 @@ mod tests {
         assert!(parse_report(&p).is_some());
         let p = format!("state=done:app={}", "a".repeat(33));
         assert_eq!(parse_report(&p), None);
+    }
+
+    #[test]
+    fn bad_earlier_duplicate_discards() {
+        let big = b64(&"a".repeat(3000));
+        assert_eq!(
+            parse_report(&format!("state=done:msg={big}:msg={}", b64("ok"))),
+            None
+        );
+        assert_eq!(parse_report("state=done:id=a b:id=a"), None);
+        assert_eq!(
+            parse_report(&format!("state=done:app={}:app=x", "a".repeat(33))),
+            None
+        );
+    }
+
+    #[test]
+    fn unpadded_base64_is_accepted() {
+        // "Allow edit?" is 11 bytes, so the padded form ends in "=".
+        let padded = b64("Allow edit?");
+        assert!(padded.ends_with('='));
+        let p = format!("state=done:msg={}", padded.trim_end_matches('='));
+        match parse_report(&p) {
+            Some(Report::Set { record, .. }) => {
+                assert_eq!(record.msg.as_deref(), Some("Allow edit?"))
+            }
+            other => panic!("{other:?}"),
+        }
     }
 
     #[test]
