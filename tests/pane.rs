@@ -328,3 +328,17 @@ fn kitty_flags_follow_the_option() {
         );
     }
 }
+
+#[test]
+fn keyboard_mode_stack_overflow_does_not_panic() {
+    // alacritty_terminal 0.26.0 panicked (and montty aborts on panic) on the 4097th push;
+    // see vendor/alacritty_terminal/MONTTY.md. The reader thread dying would leave "done" unprinted.
+    let cmd = [
+        "sh",
+        "-c",
+        "i=0; while [ $i -lt 4100 ]; do printf '\\033[>1u'; i=$((i+1)); done; printf done; sleep 1",
+    ];
+    let (tx, rx) = mpsc::channel();
+    let pane = Pane::spawn(8, &opts(&cmd), size(20, 5), Arc::new(tx)).unwrap();
+    assert_eq!(wait_line0(&pane, &rx, "done"), "done");
+}

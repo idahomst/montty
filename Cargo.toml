@@ -63,3 +63,9 @@ codegen-units = 1
 panic = "abort"
 strip = true
 opt-level = 3
+
+# alacritty_terminal 0.26.0 panics (aborts, see profile.release) when a program pushes the kitty keyboard
+# mode 4097 times; vendor/alacritty_terminal has the one-line upstream fix (see its MONTTY.md).
+# Drop the patch once a fixed release is on crates.io.
+[patch.crates-io]
+alacritty_terminal = { path = "vendor/alacritty_terminal" }
