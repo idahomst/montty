@@ -459,6 +459,7 @@ impl Window {
             menu,
             profiles: None,
             sessions: Some(names),
+            pane: None,
         });
     }
 

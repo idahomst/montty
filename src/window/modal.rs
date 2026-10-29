@@ -15,6 +15,7 @@ use winit::window::CursorIcon;
 use super::Window;
 use super::bar::{BarPaint, Label};
 use super::tabs::Tabs;
+use crate::clipboard::ClipKind;
 use crate::input::Mods;
 use crate::input::bindings::{Action, Bindings, KeyCombo};
 use crate::layout::{PaneId, Rect};
@@ -41,11 +42,13 @@ const SAVE_PROMPT_COLS: i32 = 40;
 pub(super) enum Modal {
     None,
     /// The ≡ menu; with `profiles` a pane's profile menu; with `sessions` the session
-    /// list (the names it opened with, so a change on disk can't shift its rows).
+    /// list (the names it opened with, so a change on disk can't shift its rows); with
+    /// `pane` the menu a right-click in that pane opened.
     Menu {
         menu: Menu,
         profiles: Option<ProfileMenu>,
         sessions: Option<Vec<String>>,
+        pane: Option<PaneId>,
     },
     Panel(InfoPanel),
     /// A single-line text field for `purpose`.
@@ -210,15 +213,18 @@ pub(super) fn pane_running(runs_command: bool, foreground_child: impl FnOnce() -
     runs_command || foreground_child()
 }
 
+/// The first key combination bound to `a`, as shown in menus.
+fn keys_of(bindings: &Bindings, a: Action) -> Option<String> {
+    bindings
+        .entries()
+        .into_iter()
+        .find(|&(_, b)| b == a)
+        .map(|(c, _)| c.to_string())
+}
+
 /// The ≡ menu's rows; the rows with a key binding show it.
 pub(super) fn menu_items(bindings: &Bindings) -> Vec<MenuItem> {
-    let keys_of = |a: Action| {
-        bindings
-            .entries()
-            .into_iter()
-            .find(|&(_, b)| b == a)
-            .map(|(c, _)| c.to_string())
-    };
+    let keys_of = |a: Action| keys_of(bindings, a);
     let item = |label: &str, shortcut, action| MenuItem {
         label: label.into(),
         shortcut,
@@ -247,6 +253,45 @@ pub(super) fn menu_items(bindings: &Bindings) -> Vec<MenuItem> {
         item("Keyboard shortcuts", None, MenuAction::Shortcuts),
         item("About montty", None, MenuAction::About),
     ]
+}
+
+/// The menu a right-click in a pane opens: splits, then the clipboard. Copy is
+/// greyed out when the pane has no selection.
+pub(super) fn pane_menu_items(bindings: &Bindings, has_selection: bool) -> Vec<MenuItem> {
+    let item = |label: &str, a: Action, action| MenuItem {
+        label: label.into(),
+        shortcut: keys_of(bindings, a),
+        action,
+    };
+    let copy = match has_selection {
+        true => MenuAction::Copy,
+        false => MenuAction::Disabled,
+    };
+    vec![
+        item("Split right", Action::SplitRight, MenuAction::SplitRight),
+        item("Split down", Action::SplitDown, MenuAction::SplitDown),
+        MenuItem {
+            label: String::new(),
+            shortcut: None,
+            action: MenuAction::Separator,
+        },
+        item("Copy", Action::Copy, copy),
+        item("Paste", Action::Paste, MenuAction::Paste),
+    ]
+}
+
+/// The top-left corner of a `w` × `h` menu opened by a click at (`x`, `y`): on the
+/// pointer, moved to stay inside the window like a profile menu.
+pub(super) fn pointer_menu_origin(
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    win_w: i32,
+    win_h: i32,
+) -> (i32, i32) {
+    let at = Rect { x, y, w: 0, h: 0 };
+    profile_menu_origin(at, w, h, win_w, win_h)
 }
 
 /// One row per key binding (numbered families collapsed, see `shortcut_rows`):
@@ -436,6 +481,18 @@ pub(super) fn paint_menu(menu: &Menu, bm: &BarMetrics, stroke: i32) -> BarPaint 
         });
     }
     for (item, row) in menu.items.iter().zip(&rows) {
+        if item.action == MenuAction::Separator {
+            out.under.push(RectInstance {
+                rect: Rect {
+                    x: inner.x + bm.pad,
+                    y: row.y + (row.h - stroke) / 2,
+                    w: inner.w - 2 * bm.pad,
+                    h: stroke,
+                },
+                color: theme::PANEL_BORDER,
+            });
+            continue;
+        }
         let y = row.y + bm.pad;
         let mut x = row.x + bm.pad;
         let mut text = item.label.as_str();
@@ -714,6 +771,7 @@ impl Window {
             menu,
             profiles: None,
             sessions: None,
+            pane: None,
         });
     }
 
@@ -745,6 +803,28 @@ impl Window {
             menu,
             profiles,
             sessions: None,
+            pane: None,
+        });
+    }
+
+    /// Right-click in pane `pane` at (`x`, `y`): its menu opens on the pointer. The
+    /// pane takes the focus first, so a split happens next to it.
+    pub(super) fn open_pane_menu(&mut self, pane: PaneId, x: i32, y: i32) {
+        if pane != self.tabs.active().focused {
+            self.set_focus(pane);
+        }
+        let has_selection = self.selection_text(pane).is_some_and(|t| !t.is_empty());
+        let items = pane_menu_items(&self.store.global().bindings, has_selection);
+        let bm = self.bar_metrics();
+        let (w, h) = self.size_px();
+        let probe = Menu::new(items, 0, 0);
+        let r = probe.rect(&bm);
+        let (x, y) = pointer_menu_origin(x, y, r.w, r.h, w, h);
+        self.set_modal(Modal::Menu {
+            menu: Menu::new(probe.items, x + r.w, y),
+            profiles: None,
+            sessions: None,
+            pane: Some(pane),
         });
     }
 
@@ -894,8 +974,12 @@ impl Window {
             } => resolve_rename(&self.tabs, *pane).is_none(),
             Modal::Confirm(c) => !target_alive(&c.target, &self.tabs, &self.panes),
             Modal::Menu {
-                profiles: Some(p), ..
-            } => !target_alive(&CloseTarget::Pane(p.pane), &self.tabs, &self.panes),
+                profiles: Some(ProfileMenu { pane, .. }),
+                ..
+            }
+            | Modal::Menu {
+                pane: Some(pane), ..
+            } => !target_alive(&CloseTarget::Pane(*pane), &self.tabs, &self.panes),
             _ => false,
         };
         if stale {
@@ -989,7 +1073,27 @@ impl Window {
                     self.open_session(&name);
                 }
             }
-            MenuAction::Disabled => {}
+            MenuAction::SplitRight | MenuAction::SplitDown => {
+                self.set_modal(Modal::None);
+                self.perform(match a {
+                    MenuAction::SplitRight => Action::SplitRight,
+                    _ => Action::SplitDown,
+                });
+            }
+            MenuAction::Copy | MenuAction::Paste => {
+                let pane = match &self.modal {
+                    Modal::Menu { pane, .. } => *pane,
+                    _ => None,
+                };
+                self.set_modal(Modal::None);
+                // The pane clicked, even with the find bar open (its paste goes to the field).
+                match (a, pane) {
+                    (MenuAction::Copy, _) => self.copy(),
+                    (_, Some(pane)) => self.paste_into(pane, ClipKind::Clipboard),
+                    _ => {}
+                }
+            }
+            MenuAction::Disabled | MenuAction::Separator => {}
         }
     }
 
@@ -1233,6 +1337,7 @@ mod tests {
                 menu: menu_at(400),
                 profiles: None,
                 sessions: None,
+                pane: None,
             },
             Modal::Menu {
                 menu: menu_at(400),
@@ -1241,11 +1346,13 @@ mod tests {
                     stems: Vec::new(),
                 }),
                 sessions: None,
+                pane: None,
             },
             Modal::Menu {
                 menu: menu_at(400),
                 profiles: None,
                 sessions: Some(Vec::new()),
+                pane: None,
             },
             Modal::Panel(about_panel()),
             Modal::Prompt {
@@ -1789,6 +1896,67 @@ mod tests {
         m.hover(last.x + 2, last.y + 2, &bm);
         let hover = colored(&paint_menu(&m, &bm, 1), HOVER);
         assert_eq!(hover[0].y + hover[0].h, last.y + last.h - 1);
+    }
+
+    #[test]
+    fn pane_menu_rows() {
+        let rows = |items: Vec<MenuItem>| -> Vec<(String, Option<String>, MenuAction)> {
+            items
+                .into_iter()
+                .map(|i| (i.label, i.shortcut, i.action))
+                .collect()
+        };
+        let row = |l: &str, s: Option<&str>, a| (l.to_string(), s.map(String::from), a);
+        let b = Bindings::defaults();
+        assert_eq!(
+            rows(pane_menu_items(&b, true)),
+            [
+                row("Split right", Some("Ctrl+Alt+R"), MenuAction::SplitRight),
+                row("Split down", Some("Ctrl+Alt+D"), MenuAction::SplitDown),
+                row("", None, MenuAction::Separator),
+                row("Copy", Some("Ctrl+Shift+C"), MenuAction::Copy),
+                row("Paste", Some("Ctrl+Shift+V"), MenuAction::Paste),
+            ]
+        );
+        // Nothing selected: Copy shows, greyed out.
+        let items = pane_menu_items(&b, false);
+        assert_eq!(
+            (items[3].label.as_str(), items[3].action),
+            ("Copy", MenuAction::Disabled)
+        );
+    }
+
+    #[test]
+    fn pane_menu_opens_at_the_pointer_and_stays_inside() {
+        // Room below and right: its top-left corner on the pointer.
+        assert_eq!(pointer_menu_origin(100, 50, 120, 90, 800, 600), (100, 50));
+        // Near the bottom-right corner: moved left, and above the pointer.
+        assert_eq!(pointer_menu_origin(780, 590, 120, 90, 800, 600), (680, 500));
+        // A window smaller than the menu: from the top-left corner.
+        assert_eq!(pointer_menu_origin(10, 10, 120, 90, 60, 40), (0, 0));
+    }
+
+    #[test]
+    fn paint_menu_separator_is_a_line() {
+        let bm = bm();
+        let m = Menu::new(pane_menu_items(&Bindings::defaults(), true), 400, 28);
+        let r = m.rect(&bm);
+        let sep = m.item_rects(&bm)[2];
+        let p = paint_menu(&m, &bm, 1);
+        // The frame, then one border-coloured line across the separator row.
+        let lines: Vec<Rect> = colored(&p, PANEL_BORDER)
+            .into_iter()
+            .filter(|l| *l != r)
+            .collect();
+        assert_eq!(lines.len(), 1);
+        let line = lines[0];
+        assert_eq!(line.h, 1);
+        assert!(inside(sep, line), "{line:?} in {sep:?}");
+        assert_eq!(line.x, r.x + 1 + bm.pad);
+        assert_eq!(line.x + line.w, r.x + r.w - 1 - bm.pad);
+        // No label for it.
+        assert!(p.labels.iter().all(|l| !l.text.is_empty()));
+        assert!(!p.labels.iter().any(|l| l.y >= sep.y && l.y < sep.y + sep.h));
     }
 
     #[test]

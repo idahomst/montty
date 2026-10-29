@@ -98,7 +98,8 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - An unknown action name is an error: `` unknown action `splt_right` in [keybindings] ``.
 - Digit keys also match by position on the number row, so `Alt+1` works on layouts (such as Czech) where the
   unshifted digit row types other characters.
-- The mouse gestures (selection, middle click paste, Ctrl+click links; see "Mouse and clipboard") aren't configurable.
+- The mouse gestures (selection, middle click paste, the right-click menu, Ctrl+click links; see "Mouse and
+  clipboard") aren't configurable.
 
 ### Actions and their default keys
 
@@ -217,6 +218,9 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - A paste scrolls the pane to the bottom, like typing. In bracketed-paste mode the text is wrapped in the
   bracketed-paste markers and any ESC and Ctrl+C characters in it are removed; otherwise line breaks become `\r`.
 - If the clipboard can't be opened, copy and paste do nothing, and `montty: clipboard: <error>` is printed once.
+- Right-click in a pane opens a menu at the pointer: Split right, Split down, Copy and Paste, each with its shortcut.
+  The pane takes the focus, so a split opens next to it and Paste goes into it. The selection stays; Copy is greyed
+  out without one. Esc or a click outside closes the menu.
 
 ### Panes
 
@@ -234,8 +238,8 @@ a running process asks instead, never both. `confirm_close_window = false` turns
 ### Programs that use the mouse
 
 When a program asks for mouse reporting (htop, vim with `mouse=a`, tmux), clicks, drags, motion and the wheel go to
-the program instead. Hold Shift to bypass that: Shift+drag selects, Shift+middle click pastes and Shift+wheel scrolls
-montty's scrollback, as without reporting. With Shift held, clicks select as usual: Shift can't also extend a
+the program instead. Hold Shift to bypass that: Shift+drag selects, Shift+middle click pastes, Shift+right-click opens
+the pane menu and Shift+wheel scrolls montty's scrollback, as without reporting. With Shift held, clicks select as usual: Shift can't also extend a
 selection there, so each Shift+click or Shift+drag starts a new one.
 
 ### Links

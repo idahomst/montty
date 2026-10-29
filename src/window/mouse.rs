@@ -276,6 +276,10 @@ impl Window {
             self.middle_press();
             return;
         }
+        if button == MouseButton::Right && state == ElementState::Pressed {
+            self.right_press();
+            return;
+        }
         if button != MouseButton::Left {
             return;
         }
@@ -453,6 +457,18 @@ impl Window {
             && let Some(pane) = self.panes.get(&id)
         {
             pane.write(bytes);
+        }
+    }
+
+    /// Right press: the pane menu opens on the pointer. (Mouse reporting, with Shift
+    /// as the bypass, takes this press first.)
+    fn right_press(&mut self) {
+        if self.mouse.drag.is_some() || self.mouse.select.drag.is_some() {
+            return;
+        }
+        let (x, y) = self.mouse.pos;
+        if let Some((id, _)) = self.pane_at(x, y) {
+            self.open_pane_menu(id, x, y);
         }
     }
 

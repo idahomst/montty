@@ -193,8 +193,8 @@ up default to the right/down keys plus Shift (`Ctrl+Alt+Shift+R`, `Ctrl+Alt+Shif
 - Whatever `alacritty_terminal` supports (truecolor, bracketed paste, mouse reporting, alt screen, OSC 8 hyperlinks,
   OSC 52 writes) is exposed; montty adds no emulation of its own.
 - Mouse: drag selects, double-click selects a word, triple-click a line, Alt+drag a block, Shift bypasses a program's
-  mouse reporting, selecting copies to PRIMARY, middle click pastes it, the wheel scrolls (alternate scroll on the alt
-  screen).
+  mouse reporting, selecting copies to PRIMARY, middle click pastes it, right-click opens a pane menu (split right,
+  split down, copy, paste) at the pointer, the wheel scrolls (alternate scroll on the alt screen).
 - Ctrl+click on a URL or OSC 8 link opens it with `xdg-open`.
 - Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
   `input/kitty.rs` encodes keys for all five, so Shift+Enter and other modified keys reach agents distinctly (Claude

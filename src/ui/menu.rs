@@ -1,4 +1,5 @@
-//! Dropdown menus (behind the ≡ button, and a pane overlay's Profile button):
+//! Dropdown menus (behind the ≡ button, a pane overlay's Profile button, and a
+//! right-click in a pane):
 //! geometry, hit-testing and keyboard navigation (pure).
 
 use super::text::{display_width, sanitize, truncate};
@@ -28,6 +29,12 @@ pub enum MenuAction {
     SetProfile(usize),
     /// An index into the sorted session names the session list was opened with.
     OpenSession(usize),
+    SplitRight,
+    SplitDown,
+    Copy,
+    Paste,
+    /// A thin line between groups of rows: never chosen, skipped by the arrow keys.
+    Separator,
     /// A row that only informs (`… N more`): never chosen, skipped by the arrow keys.
     Disabled,
 }
@@ -126,6 +133,18 @@ pub fn session_menu_items(names: &[String], max_rows: usize, max_cols: usize) ->
     items
 }
 
+/// A separator row's height: a third of a row.
+pub fn separator_height(bm: &BarMetrics) -> i32 {
+    (bm.height / 3).max(1)
+}
+
+fn row_height(item: &MenuItem, bm: &BarMetrics) -> i32 {
+    match item.action {
+        MenuAction::Separator => separator_height(bm),
+        _ => bm.height,
+    }
+}
+
 pub struct MenuItem {
     pub label: String,
     pub shortcut: Option<String>,
@@ -178,18 +197,24 @@ impl Menu {
             x: self.anchor_right - w,
             y: self.top,
             w,
-            h: self.items.len() as i32 * bm.height,
+            h: self.items.iter().map(|i| row_height(i, bm)).sum(),
         }
     }
 
     pub fn item_rects(&self, bm: &BarMetrics) -> Vec<Rect> {
         let r = self.rect(bm);
-        (0..self.items.len() as i32)
-            .map(|i| Rect {
-                x: r.x,
-                y: r.y + i * bm.height,
-                w: r.w,
-                h: bm.height,
+        let mut y = r.y;
+        self.items
+            .iter()
+            .map(|i| {
+                let h = row_height(i, bm);
+                y += h;
+                Rect {
+                    x: r.x,
+                    y: y - h,
+                    w: r.w,
+                    h,
+                }
             })
             .collect()
     }
@@ -199,7 +224,10 @@ impl Menu {
     }
 
     fn enabled(&self, i: usize) -> bool {
-        self.items[i].action != MenuAction::Disabled
+        !matches!(
+            self.items[i].action,
+            MenuAction::Disabled | MenuAction::Separator
+        )
     }
 
     /// The next enabled row from `from` going `step` (1 or n - 1) rows at a time, wrapping;
@@ -505,6 +533,48 @@ mod tests {
         assert_eq!(
             m.click(rows[1].x + 1, rows[1].y + 1, &bm()),
             MenuOutcome::None
+        );
+    }
+
+    #[test]
+    fn separators_are_short_and_inert() {
+        let item = |l: &str, a| MenuItem {
+            label: l.into(),
+            shortcut: None,
+            action: a,
+        };
+        let mut m = Menu::new(
+            vec![
+                item("a", MenuAction::NewTab),
+                item("", MenuAction::Separator),
+                item("b", MenuAction::About),
+            ],
+            400,
+            28,
+        );
+        let bm = bm();
+        let rows = m.item_rects(&bm);
+        let sep = separator_height(&bm);
+        assert!(sep > 0 && sep < bm.height);
+        assert_eq!(rows[1].h, sep);
+        assert_eq!(rows[1].y, rows[0].y + bm.height);
+        assert_eq!(rows[2].y, rows[1].y + sep);
+        assert_eq!(m.rect(&bm).h, 2 * bm.height + sep);
+        // Arrow keys step over it, hover doesn't select it, a click keeps the menu open.
+        m.key(&down());
+        m.key(&down());
+        assert_eq!(m.selected(), Some(2));
+        m.key(&up());
+        assert_eq!(m.selected(), Some(0));
+        m.hover(rows[1].x + 1, rows[1].y + 1, &bm);
+        assert_eq!(m.selected(), Some(0));
+        assert_eq!(
+            m.click(rows[1].x + 1, rows[1].y + 1, &bm),
+            MenuOutcome::None
+        );
+        assert_eq!(
+            m.click(rows[2].x + 1, rows[2].y + 1, &bm),
+            MenuOutcome::Chosen(MenuAction::About)
         );
     }
 
