@@ -72,6 +72,23 @@ Notes:
   at most one frame per refresh while the flood keeps producing output.
 - The 10-pane RSS is close to its target. Treat any per-pane memory growth (grid, atlas, font sets) with care.
 
+## Check: attention marks and kitty keyboard (after 0.1.2)
+
+The PTY reader now scans every byte for OSC 7501 / 9 / 777 / 133 (`src/term/pty_tap.rs`). Measured against the
+previous `main` build on the same machine and display, alternating the two.
+
+| Metric | before | after | Result |
+|---|---|---|---|
+| `cat` 100 MB, pooled median of 9 runs (3 alternating sets) | 0.849 s | 0.860 s | +1.3 %: pass |
+| Key-to-screen latency, 6 runs of 100 samples | 2.9-3.0 ms (p95 3.9-4.9) | 2.9-3.0 ms (p95 4.1-4.4) | unchanged: pass |
+| Latency, `yes` in a neighbour pane, 3 runs | 12.3-13.4 ms (p95 20.5-21.6) | 11.2-12.7 ms (p95 20.5-21.4) | unchanged: pass |
+| Idle CPU, 10 s | 0.00 % (0 ticks) | 0.00 % (0 ticks) | pass |
+| Idle RSS, 1 pane | 89.2 MB | 89.2 MB | reported |
+| Idle RSS, 10 panes, 2 runs | 100.1-100.3 MB | 99.9 MB | at the target, unchanged by this change |
+| Stripped binary | 6.57 MB | 6.64 MB | pass |
+
+The 10-pane RSS is now at about 100 MB for both builds, up from 98.6 MB at 0.1.0; the growth came before this change.
+
 ## Lasting findings
 
 - `cat` throughput is limited by the PTY reader thread (read, parse, grid update), not by drawing: a flood into a
