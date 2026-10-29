@@ -8,7 +8,9 @@ use winit::event::MouseButton;
 use winit::window::{CursorIcon, ResizeDirection};
 
 use super::Window;
+use super::attention::Level;
 use super::draw::ChromeColors;
+use super::marks::{disc, level_color};
 use super::modal::{Modal, PromptPurpose, editing_label, resolve_rename};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
@@ -194,6 +196,7 @@ pub(super) fn paint(
     stroke: i32,
     underline: i32,
     accent: [f32; 4],
+    marks: &[Option<Level>],
 ) -> BarPaint {
     let fill = |rect: Rect, color: [f32; 4]| RectInstance { rect, color };
     let mut out = BarPaint::default();
@@ -253,6 +256,11 @@ pub(super) fn paint(
             accent,
         ));
     }
+    for t in &bar.tabs {
+        if let (Some(dot), Some(Some(level))) = (t.dot_rect, marks.get(t.index)) {
+            out.icons.extend(disc(dot, level_color(*level)));
+        }
+    }
     out.labels = bar
         .tabs
         .iter()
@@ -297,11 +305,13 @@ impl Window {
             *label = editing_label(field.text());
         }
         let width = self.size.width.min(i32::MAX as u32) as i32;
+        let dots: Vec<bool> = self.tab_marks().iter().map(Option::is_some).collect();
         layout(
             width,
             &self.bar_metrics(),
             &labels,
             self.tabs.active_index(),
+            &dots,
         )
     }
 
@@ -341,6 +351,7 @@ impl Window {
             self.chrome_stroke(),
             underline_px(self.scale),
             ChromeColors::of(self.store.global()).border,
+            &self.tab_marks(),
         );
         self.draw_paint(&p);
     }
@@ -674,13 +685,13 @@ mod tests {
     }
 
     fn two_tabs() -> Bar {
-        layout(800, &bm(), &["bash".to_string(), "vim".to_string()], 0)
+        layout(800, &bm(), &["bash".to_string(), "vim".to_string()], 0, &[])
     }
 
     #[test]
     fn paint_backgrounds_and_labels() {
         let bar = two_tabs();
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T);
+        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
         // The bar background comes first and spans the window.
         assert_eq!(
             p.under[0],
@@ -709,7 +720,7 @@ mod tests {
     #[test]
     fn paint_icons_for_every_button_and_tab_close() {
         let bar = two_tabs();
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T);
+        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
         let mut expected = 0;
         for (t, icon) in [
             (Target::TabClose(0), Icon::Close),
@@ -731,7 +742,7 @@ mod tests {
         }
         assert_eq!(p.icons.len(), expected);
         // Maximized: the Maximize button shows Restore.
-        let p = paint(&bar, 800, 0, None, true, 1, 3, ACCENT_T);
+        let p = paint(&bar, 800, 0, None, true, 1, 3, ACCENT_T, &[]);
         for r in icon_rects(Icon::Restore, rect_of(&bar, Target::Maximize), 1) {
             assert!(p.icons.iter().any(|i| i.rect == r));
         }
@@ -740,7 +751,7 @@ mod tests {
     #[test]
     fn paint_hover() {
         let bar = two_tabs();
-        let hovered = |t| paint(&bar, 800, 0, Some(t), false, 1, 3, ACCENT_T);
+        let hovered = |t| paint(&bar, 800, 0, Some(t), false, 1, 3, ACCENT_T, &[]);
         let p = hovered(Target::Tab(1));
         assert_eq!(color_at(&p, rect_of(&bar, Target::Tab(1))), [HOVER]);
         // The active tab keeps the terminal background.
@@ -758,7 +769,10 @@ mod tests {
         // Only the hovered item changes.
         assert_eq!(
             p.under.len(),
-            paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T).under.len() + 1
+            paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[])
+                .under
+                .len()
+                + 1
         );
     }
 
@@ -783,6 +797,7 @@ mod tests {
                 1,
                 3,
                 ACCENT_T,
+                &[],
             );
             let t = rect_of(&bar, Target::Tab(active));
             let line = RectInstance {
@@ -804,8 +819,26 @@ mod tests {
 
     #[test]
     fn single_tab_is_underlined() {
-        let bar = layout(800, &bm(), &["bash".to_string()], 0);
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T);
+        let bar = layout(800, &bm(), &["bash".to_string()], 0, &[]);
+        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
         assert_eq!(p.under.last().unwrap().color, ACCENT_T);
+    }
+
+    #[test]
+    fn marked_tab_paints_a_coloured_disc() {
+        let ls = ["bash".to_string(), "vim".to_string()];
+        let bar = layout(800, &bm(), &ls, 0, &[false, true]);
+        let marks = [None, Some(Level::Blocked)];
+        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &marks);
+        let dot = bar.tabs[1].dot_rect.unwrap();
+        let discs: Vec<_> = p
+            .icons
+            .iter()
+            .filter(|r| r.color == theme::MARK_BLOCKED)
+            .collect();
+        assert_eq!(discs.len() as i32, dot.h);
+        assert!(discs.iter().all(|r| dot.contains(r.rect.x, r.rect.y)));
+        let none = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
+        assert!(none.icons.iter().all(|r| r.color != theme::MARK_BLOCKED));
     }
 }

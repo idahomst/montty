@@ -55,6 +55,7 @@ Top-level modules (`src/`):
 - `modal.rs`: menus, panels, prompts, close confirmation (at most one open; it takes all input).
 - `pane_drag.rs`: drag-to-swap state machine. `sizes.rs`: size labels shown while resizing. `blink.rs`: cursor blink.
 - `images.rs`: background image textures shared per image. `sessions.rs`: saving sessions and the session list.
+- `marks.rs`: attention dots on tabs and panes (placement, hover label); the state is in `attention.rs`.
 
 Key flows:
 

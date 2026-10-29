@@ -56,6 +56,10 @@ pane_drag = true
 # Ask before closing a window (or its last tab) that holds more than one pane. A running process always asks. Default: true.
 confirm_close_window = true
 
+# Dots on tabs and panes that need you (see "Attention marks"), with hover labels. Default: true.
+# The state is tracked either way.
+attention_marks = true
+
 # Key bindings. Only list what you want to change.
 [keybindings]
 split_right = "Ctrl+Alt+E"                    # one combo
@@ -265,6 +269,21 @@ If it is already open, the field is focused and its text selected.
   manager for attention (a taskbar highlight); a bell in a hidden pane only does that.
 - A thin scrollbar appears at a pane's right edge while the pane is scrolled back and for one second after any scroll,
   then disappears. It is only an indicator: it can't be dragged. A pane with no history never shows it.
+
+### Attention marks
+
+A small dot shows where a program needs you. A tab's dot sits before its title; a pane's dot sits in the pane's
+top-right corner. Hovering a dot shows its label. `attention_marks = false` in `config.toml` hides the dots and
+labels (the state is still tracked).
+
+- Amber: the program is blocked on you (OSC 7501 `state=blocked`, labelled `Needs permission`, `Has a question`,
+  `Needs login` or `Needs you`; with `app` and `msg` set, `<app>: <msg>`), or it sent a notification (OSC 9, OSC 777
+  `notify`) or a bell (`Bell`) while you weren't looking at the pane.
+- Green: the program finished (`state=done`, `Done`) while you weren't looking. Red: it failed (`state=error`, `Failed`).
+- A tab shows the most urgent dot of its panes: amber, then red, then green.
+- A blocked dot goes away when the program moves on (`state=working`, a new prompt, a reset). Done, failed, bell and
+  notification dots stay until you look at the pane (it is the focused pane of the active tab in a focused window).
+  A pane you are already looking at never gets a dot.
 
 ## Profiles
 

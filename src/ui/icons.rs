@@ -17,6 +17,32 @@ pub enum Icon {
     Grip,
 }
 
+/// A filled disc of `diameter` px centred on (`cx`, `cy`) as one horizontal span per row, each
+/// centred, so the shape is mirror-symmetric and stays inside its bounding square.
+pub fn disc_rects(cx: i32, cy: i32, diameter: i32) -> Vec<Rect> {
+    let d = diameter.max(0);
+    let r = d as f32 / 2.0;
+    (0..d)
+        .map(|i| {
+            let dy = i as f32 + 0.5 - r;
+            let half = (r * r - dy * dy).max(0.0).sqrt();
+            // Same parity as `d` so the span can be centred on whole pixels.
+            let w = if d % 2 == 0 {
+                2 * half.round() as i32
+            } else {
+                2 * (half - 0.5).round() as i32 + 1
+            }
+            .clamp(1, d);
+            Rect {
+                x: cx - d / 2 + (d - w) / 2,
+                y: cy - d / 2 + i,
+                w,
+                h: 1,
+            }
+        })
+        .collect()
+}
+
 /// Rects forming `icon`, centered in `bounds` inside a square of side
 /// `min(w, h) / 2` rounded to even, drawn with lines `stroke` px thick.
 pub fn icon_rects(icon: Icon, bounds: Rect, stroke: i32) -> Vec<Rect> {
@@ -331,6 +357,35 @@ mod tests {
                     assert!(w[0].h > w[1].h, "{side} s{stroke} {rects:?}");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn disc_is_symmetric_and_bounded() {
+        for d in [4, 8, 16] {
+            let (cx, cy) = (50, 30);
+            let rects = disc_rects(cx, cy, d);
+            let square = Rect {
+                x: cx - d / 2,
+                y: cy - d / 2,
+                w: d,
+                h: d,
+            };
+            assert_eq!(rects.len() as i32, d, "one span per row");
+            for r in &rects {
+                assert!(r.w > 0 && r.h > 0 && inside(*r, square), "d{d} {r:?}");
+                // Mirror-symmetric left/right around the centre.
+                assert_eq!(r.x - square.x, square.x + d - (r.x + r.w), "d{d} {r:?}");
+            }
+            let widths: Vec<i32> = rects.iter().map(|r| r.w).collect();
+            let mid = widths.iter().copied().max().unwrap();
+            assert!(
+                widths[0] < mid && widths[widths.len() - 1] < mid,
+                "{widths:?}"
+            );
+            let mut flipped = widths.clone();
+            flipped.reverse();
+            assert_eq!(widths, flipped, "top/bottom mirror");
         }
     }
 }

@@ -27,6 +27,9 @@ pub struct GlobalConfig {
     pub pane_drag: bool,
     /// Closing a window (or its last tab) with several panes asks first.
     pub confirm_close_window: bool,
+    /// Dots on tabs and panes that need attention, and their hover labels. The state is
+    /// tracked either way.
+    pub attention_marks: bool,
     pub bindings: Bindings,
 }
 
@@ -50,6 +53,7 @@ impl Default for GlobalConfig {
             visual_bell: true,
             pane_drag: true,
             confirm_close_window: true,
+            attention_marks: true,
             bindings: Bindings::defaults(),
         }
     }
@@ -66,6 +70,7 @@ struct Raw {
     visual_bell: Option<bool>,
     pane_drag: Option<bool>,
     confirm_close_window: Option<bool>,
+    attention_marks: Option<bool>,
     keybindings: Option<BTreeMap<String, Spanned<toml::Value>>>,
 }
 
@@ -122,6 +127,9 @@ impl GlobalConfig {
         }
         if let Some(v) = raw.confirm_close_window {
             cfg.confirm_close_window = v;
+        }
+        if let Some(v) = raw.attention_marks {
+            cfg.attention_marks = v;
         }
         // Validate in file order so the first error in the file is the one reported.
         let mut entries: Vec<_> = raw.keybindings.into_iter().flatten().collect();
@@ -257,6 +265,16 @@ mod tests {
         assert!(GlobalConfig::parse("", p()).unwrap().visual_bell);
         let c = GlobalConfig::parse("visual_bell = false", p()).unwrap();
         assert!(!c.visual_bell);
+    }
+
+    #[test]
+    fn attention_marks_default_and_parse() {
+        assert!(GlobalConfig::default().attention_marks);
+        assert!(GlobalConfig::parse("", p()).unwrap().attention_marks);
+        let c = GlobalConfig::parse("attention_marks = false", p()).unwrap();
+        assert!(!c.attention_marks);
+        let e = GlobalConfig::parse("dim_amount = 0.5\nattention_marks = 3", p()).unwrap_err();
+        assert_eq!(e.line, Some(2));
     }
 
     #[test]

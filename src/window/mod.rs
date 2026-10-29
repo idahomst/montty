@@ -10,6 +10,7 @@ mod gl;
 mod icon;
 mod images;
 mod links;
+mod marks;
 mod modal;
 mod mouse;
 mod pane_drag;
@@ -58,6 +59,7 @@ use crate::term::colors::resolve;
 use crate::term::osc_scan::Signal;
 use crate::term::pane::{EventSink, Pane, PaneOptions, UserEvent, next_pane_id};
 use crate::term::snapshot::Snapshot;
+use crate::term::status::display_text;
 use crate::ui::confirm::CloseTarget;
 use crate::ui::overlay::OverlayTarget;
 use crate::ui::toast::{Toast, ToastSource, ToastUpdate, reload_toast};
@@ -518,6 +520,10 @@ pub struct Window {
     window_focused: bool,
     /// The pane flashing from its bell, and when the flash ends.
     bell: Option<(PaneId, Instant)>,
+    /// Which panes need the user (OSC 7501 status, bell, OSC 9 / 777).
+    attention: attention::Attention,
+    /// The attention dot the pointer is over, as last drawn.
+    mark_hover: Option<Rect>,
     /// When each pane last scrolled by a user action (its scrollbar lingers a second).
     scrolled: HashMap<PaneId, Instant>,
     /// The "cols × rows" labels shown while panes are resized.
@@ -743,6 +749,8 @@ impl Window {
             find: None,
             window_focused: true,
             bell: None,
+            attention: attention::Attention::default(),
+            mark_hover: None,
             scrolled: HashMap::new(),
             size_labels: SizeLabels::default(),
             had_input: false,
@@ -839,7 +847,13 @@ impl Window {
     }
 
     /// Returns false when the window should close.
-    pub fn handle_window_event(&mut self, ev: WindowEvent, _el: &ActiveEventLoop) -> bool {
+    pub fn handle_window_event(&mut self, ev: WindowEvent, el: &ActiveEventLoop) -> bool {
+        let keep = self.on_window_event(ev, el);
+        self.refresh_looking();
+        keep
+    }
+
+    fn on_window_event(&mut self, ev: WindowEvent, _el: &ActiveEventLoop) -> bool {
         self.ensure_current();
         match ev {
             // Asks first when a pane runs a process (also while another
@@ -890,14 +904,41 @@ impl Window {
     /// window should close (as `handle_term_event`). The reply to a feature query is
     /// written from here (the UI thread), never from the PTY thread.
     pub fn handle_signal(&mut self, pane: PaneId, signal: Signal) -> bool {
-        if let (Signal::StatusQuery, Some(p)) = (&signal, self.panes.get(&pane)) {
-            p.write(b"\x1b]7501;?\x1b\\".to_vec());
+        if !self.panes.contains_key(&pane) {
+            return true;
         }
+        let looking = self.looking_at() == Some(pane);
+        // The desktop notification (`Effect.notify`) is not wired yet.
+        let effect = match signal {
+            Signal::StatusQuery => {
+                if let Some(p) = self.panes.get(&pane) {
+                    p.write(b"\x1b]7501;?\x1b\\".to_vec());
+                }
+                Default::default()
+            }
+            Signal::Status(payload) => self.attention.status(pane, &payload, looking),
+            Signal::PromptStart => self.attention.prompt_start(pane),
+            Signal::Reset => self.attention.reset(pane),
+            Signal::Notify(text) => {
+                self.attention
+                    .signal(pane, &display_text(&text), true, looking)
+            }
+        };
+        if effect.redraw {
+            self.schedule();
+        }
+        self.refresh_looking();
         true
     }
 
     /// Returns false when the window should close (its last pane exited).
     pub fn handle_term_event(&mut self, pane: PaneId, ev: Event) -> bool {
+        let keep = self.on_term_event(pane, ev);
+        self.refresh_looking();
+        keep
+    }
+
+    fn on_term_event(&mut self, pane: PaneId, ev: Event) -> bool {
         let Some(p) = self.panes.get_mut(&pane) else {
             return true;
         };
@@ -1043,6 +1084,10 @@ impl Window {
     /// A bell rang in `pane`: a visible pane flashes (a new bell restarts it) unless
     /// `visual_bell` is off; an unfocused window is also asked for attention.
     fn ring_bell(&mut self, pane: PaneId) {
+        let looking = self.looking_at() == Some(pane);
+        if self.attention.signal(pane, "Bell", false, looking).redraw {
+            self.schedule();
+        }
         if self.store.global().visual_bell && tabs::visible(&self.tabs, pane) {
             self.bell = Some((pane, Instant::now() + BELL_FLASH));
             self.schedule();
@@ -1544,6 +1589,7 @@ impl Window {
         let area = self.area();
         let removed = actions::remove_pane(&mut self.tabs, id, area);
         self.panes.remove(&id);
+        self.attention.remove(id);
         self.sizes.remove(&id);
         self.pane_profiles.remove(&id);
         if self.find.as_ref().is_some_and(|f| f.pane == id) {

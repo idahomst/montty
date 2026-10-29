@@ -183,6 +183,7 @@ impl Window {
             self.set_cursor_icon(pointer_icon(hovered, divider));
         }
         self.refresh_overlay();
+        self.update_mark_hover();
     }
 
     pub(super) fn on_cursor_left(&mut self) {
@@ -196,6 +197,7 @@ impl Window {
         self.mouse.last_cell = None;
         self.bar_pointer_left();
         self.refresh_overlay();
+        self.update_mark_hover();
     }
 
     /// Show `icon` as the pointer shape (the OS is told only on a change).

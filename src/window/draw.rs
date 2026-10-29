@@ -186,10 +186,12 @@ impl Window {
                 let rects = paint_drop_target(rect, self.chrome_stroke());
                 self.renderer.draw_rects(&rects);
             }
+            self.draw_pane_dots(&layout);
             self.draw_find();
             self.draw_overlay();
             self.draw_size_labels();
             self.draw_link_label();
+            self.draw_mark_hover();
             self.draw_toast();
             // Last, over everything.
             self.draw_modal();

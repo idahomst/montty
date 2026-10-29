@@ -1977,7 +1977,7 @@ mod tests {
         let bm = bm();
         let text = "montty dev";
         let labels = [editing_label(text), "other".into()];
-        let bar = crate::ui::topbar::layout(800, &bm, &labels, 0);
+        let bar = crate::ui::topbar::layout(800, &bm, &labels, 0, &[]);
         let cols = (bar.tabs[0].text_rect.w / bm.cell_w) as usize;
         // The whole text and the beam after it fit without scrolling.
         assert_eq!(field_view(text, 10, cols), (text.into(), 10));
