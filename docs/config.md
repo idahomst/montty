@@ -60,6 +60,10 @@ confirm_close_window = true
 # The state is tracked either way.
 attention_marks = true
 
+# Also raise a desktop notification (via `notify-send`) when a pane turns amber while you aren't looking.
+# At most one per pane per 10 seconds. Default: false.
+desktop_notifications = false
+
 # Key bindings. Only list what you want to change.
 [keybindings]
 split_right = "Ctrl+Alt+E"                    # one combo
@@ -279,6 +283,9 @@ labels (the state is still tracked).
 - Amber: the program is blocked on you (OSC 7501 `state=blocked`, labelled `Needs permission`, `Has a question`,
   `Needs login` or `Needs you`; with `app` and `msg` set, `<app>: <msg>`), or it sent a notification (OSC 9, OSC 777
   `notify`) or a bell (`Bell`) while you weren't looking at the pane.
+- `desktop_notifications = true` also runs `notify-send -a montty -i montty -- <tab title> <label>` for amber marks
+  from OSC 7501 `blocked`, OSC 9 and OSC 777 (not the bell), at most once per pane per 10 seconds; extra ones are
+  dropped. Without `notify-send` installed, montty says so once on stderr and stops trying.
 - Green: the program finished (`state=done`, `Done`) while you weren't looking. Red: it failed (`state=error`, `Failed`).
 - A tab shows the most urgent dot of its panes: amber, then red, then green.
 - A blocked dot goes away when the program moves on (`state=working`, a new prompt, a reset). Done, failed, bell and

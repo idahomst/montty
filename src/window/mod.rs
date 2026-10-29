@@ -522,6 +522,8 @@ pub struct Window {
     bell: Option<(PaneId, Instant)>,
     /// Which panes need the user (OSC 7501 status, bell, OSC 9 / 777).
     attention: attention::Attention,
+    /// Rate limit and sender of desktop notifications.
+    notifier: crate::notify::Notifier,
     /// The attention dot the pointer is over, as last drawn.
     mark_hover: Option<Rect>,
     /// When each pane last scrolled by a user action (its scrollbar lingers a second).
@@ -750,6 +752,7 @@ impl Window {
             window_focused: true,
             bell: None,
             attention: attention::Attention::default(),
+            notifier: crate::notify::Notifier::new(),
             mark_hover: None,
             scrolled: HashMap::new(),
             size_labels: SizeLabels::default(),
@@ -908,7 +911,6 @@ impl Window {
             return true;
         }
         let looking = self.looking_at() == Some(pane);
-        // The desktop notification (`Effect.notify`) is not wired yet.
         let effect = match signal {
             Signal::StatusQuery => {
                 if let Some(p) = self.panes.get(&pane) {
@@ -926,6 +928,13 @@ impl Window {
         };
         if effect.redraw {
             self.schedule();
+        }
+        if let Some(body) = effect.notify
+            && self.store.global().desktop_notifications
+            && self.notifier.allow(pane, Instant::now())
+        {
+            let title = self.tab_title_of(pane);
+            self.notifier.send(&title, &body);
         }
         self.refresh_looking();
         true

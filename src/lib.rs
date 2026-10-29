@@ -8,6 +8,7 @@ pub mod font;
 pub mod frame;
 pub mod input;
 pub mod layout;
+pub mod notify;
 pub mod render;
 pub mod session;
 pub mod term;

@@ -30,6 +30,8 @@ pub struct GlobalConfig {
     /// Dots on tabs and panes that need attention, and their hover labels. The state is
     /// tracked either way.
     pub attention_marks: bool,
+    /// Amber marks also raise a desktop notification (`notify-send`).
+    pub desktop_notifications: bool,
     pub bindings: Bindings,
 }
 
@@ -54,6 +56,7 @@ impl Default for GlobalConfig {
             pane_drag: true,
             confirm_close_window: true,
             attention_marks: true,
+            desktop_notifications: false,
             bindings: Bindings::defaults(),
         }
     }
@@ -71,6 +74,7 @@ struct Raw {
     pane_drag: Option<bool>,
     confirm_close_window: Option<bool>,
     attention_marks: Option<bool>,
+    desktop_notifications: Option<bool>,
     keybindings: Option<BTreeMap<String, Spanned<toml::Value>>>,
 }
 
@@ -130,6 +134,9 @@ impl GlobalConfig {
         }
         if let Some(v) = raw.attention_marks {
             cfg.attention_marks = v;
+        }
+        if let Some(v) = raw.desktop_notifications {
+            cfg.desktop_notifications = v;
         }
         // Validate in file order so the first error in the file is the one reported.
         let mut entries: Vec<_> = raw.keybindings.into_iter().flatten().collect();
@@ -265,6 +272,15 @@ mod tests {
         assert!(GlobalConfig::parse("", p()).unwrap().visual_bell);
         let c = GlobalConfig::parse("visual_bell = false", p()).unwrap();
         assert!(!c.visual_bell);
+    }
+
+    #[test]
+    fn desktop_notifications_default_off_and_parse() {
+        assert!(!GlobalConfig::default().desktop_notifications);
+        assert!(!GlobalConfig::parse("", p()).unwrap().desktop_notifications);
+        let c = GlobalConfig::parse("desktop_notifications = true", p()).unwrap();
+        assert!(c.desktop_notifications);
+        assert!(GlobalConfig::parse("desktop_notifications = 3", p()).is_err());
     }
 
     #[test]
