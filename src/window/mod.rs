@@ -1,6 +1,7 @@
 //! One OS window: GL surface, panes, input and frame scheduling.
 
 mod actions;
+pub mod attention;
 mod bar;
 mod blink;
 mod draw;
