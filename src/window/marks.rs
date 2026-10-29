@@ -46,6 +46,23 @@ pub(super) fn pane_dot_rect(pane: Rect, bm: &BarMetrics) -> Option<Rect> {
     })
 }
 
+/// Where a pane's dot is drawn and hit: the top-right corner, or, while the pane's hover
+/// overlay (`overlay_bg`) is shown, just left of the overlay, centred on its row, so the
+/// overlay never covers it. None when there is no room.
+pub(super) fn pane_dot_at(pane: Rect, overlay_bg: Option<Rect>, bm: &BarMetrics) -> Option<Rect> {
+    let Some(bg) = overlay_bg else {
+        return pane_dot_rect(pane, bm);
+    };
+    let d = bm.dot();
+    let r = Rect {
+        x: bg.x - bm.pad / 2 - d,
+        y: bg.y + (bg.h - d) / 2,
+        w: d,
+        h: d,
+    };
+    (r.x >= pane.x).then_some(r)
+}
+
 /// The label box for `dot`: below it, left edges aligned, or above it when it wouldn't fit
 /// below; clamped to the window.
 pub(super) fn dot_label_rect(
@@ -116,6 +133,19 @@ impl Window {
         self.attention.tab_dot(&tab.tree.panes(), self.looking_at())
     }
 
+    /// Each visible pane's dot rect, given the overlay now shown (if any).
+    fn pane_dot_rects(&self, layout: &[(PaneId, Rect)]) -> Vec<(PaneId, Rect)> {
+        let bm = self.bar_metrics();
+        let overlay = self.overlay_at_pointer().map(|(id, o, _)| (id, o.bg));
+        layout
+            .iter()
+            .filter_map(|&(id, pane)| {
+                let bg = overlay.filter(|(o, _)| *o == id).map(|(_, bg)| bg);
+                Some((id, pane_dot_at(pane, bg, &bm)?))
+            })
+            .collect()
+    }
+
     /// The dot under the pointer, if any: its rect and label.
     fn dot_under_pointer(&self) -> Option<(Rect, String)> {
         if !self.store.global().attention_marks
@@ -133,15 +163,12 @@ impl Window {
                 Some((r, self.tab_dot_label(t.index)?.label))
             });
         }
-        let bm = self.bar_metrics();
         let looking = self.looking_at();
-        self.tabs
-            .active()
-            .tree
-            .layout(self.area())
+        let layout = self.tabs.active().tree.layout(self.area());
+        self.pane_dot_rects(&layout)
             .into_iter()
-            .find_map(|(id, pane)| {
-                let r = pane_dot_rect(pane, &bm).filter(|r| grown(*r).contains(x, y))?;
+            .find_map(|(id, r)| {
+                let r = Some(r).filter(|r| grown(*r).contains(x, y))?;
                 Some((r, self.attention.pane_dot(id, looking == Some(id))?.label))
             })
     }
@@ -160,12 +187,9 @@ impl Window {
         if !self.store.global().attention_marks {
             return;
         }
-        let bm = self.bar_metrics();
         let looking = self.looking_at();
-        for &(id, pane) in layout {
-            if let Some(dot) = self.attention.pane_dot(id, looking == Some(id))
-                && let Some(r) = pane_dot_rect(pane, &bm)
-            {
+        for (id, r) in self.pane_dot_rects(layout) {
+            if let Some(dot) = self.attention.pane_dot(id, looking == Some(id)) {
                 self.renderer.draw_rects(&disc(r, level_color(dot.level)));
             }
         }
@@ -220,6 +244,29 @@ mod tests {
             }
         );
         assert!(pane_dot_rect(Rect { w: 10, ..PANE }, &bm()).is_none());
+    }
+
+    #[test]
+    fn pane_dot_moves_left_of_the_overlay() {
+        let bg = Rect {
+            x: 300,
+            y: 56,
+            w: 96,
+            h: 22,
+        };
+        let r = pane_dot_at(PANE, Some(bg), &bm()).unwrap();
+        assert_eq!(
+            r,
+            Rect {
+                x: 289,
+                y: 63,
+                w: 8,
+                h: 8
+            }
+        );
+        assert_eq!(pane_dot_at(PANE, None, &bm()), pane_dot_rect(PANE, &bm()));
+        let tight = Rect { x: 102, ..bg };
+        assert!(pane_dot_at(PANE, Some(tight), &bm()).is_none());
     }
 
     #[test]

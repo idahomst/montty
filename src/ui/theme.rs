@@ -43,11 +43,11 @@ pub const ICON: [f32; 4] = rgb(0xcccccc);
 pub const CLOSE_HOVER: [f32; 4] = rgb(0xd9534f);
 pub const PANEL_BG: [f32; 4] = rgb(0x2b2d31);
 pub const PANEL_BORDER: [f32; 4] = rgb(0x444444);
-/// `rgba(40,44,52,0.92)`.
 /// Attention dots: needs you (amber), finished, failed.
 pub const MARK_BLOCKED: [f32; 4] = rgb(0xe5a50a);
 pub const MARK_DONE: [f32; 4] = rgb(0x3fb36b);
 pub const MARK_ERROR: [f32; 4] = rgb(0xe05252);
+/// `rgba(40,44,52,0.92)`.
 pub const OVERLAY_BG: [f32; 4] = rgba(0x282c34, 0.92);
 pub const OVERLAY_BORDER: [f32; 4] = rgb(0x3d4350);
 pub const ACCENT: [f32; 4] = rgb(0x4a90d9);

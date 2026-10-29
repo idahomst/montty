@@ -301,6 +301,7 @@ impl Window {
             return;
         };
         for id in tab.tree.panes() {
+            self.attention.remove(id);
             self.panes.remove(&id);
             self.sizes.remove(&id);
             self.pane_profiles.remove(&id);
