@@ -52,13 +52,17 @@ pub fn encode_kitty(key: &KittyKey<'_>, mode: TermMode) -> Option<Vec<u8>> {
     let all = mode.contains(TermMode::REPORT_ALL_KEYS_AS_ESC);
     let events = mode.contains(TermMode::REPORT_EVENT_TYPES);
     let mods = key.mods;
-    let kind = key.kind;
+    // Without flag 2 a repeat is reported as a press (only releases are dropped).
+    let kind = match key.kind {
+        KeyEventKind::Repeat if !events => KeyEventKind::Press,
+        k => k,
+    };
     let mut bits = u32::from(mods.shift)
         | (2 * u32::from(mods.alt))
         | (4 * u32::from(mods.ctrl))
         | (8 * u32::from(mods.logo));
-    // Events are only reported when asked for.
-    if kind != KeyEventKind::Press && !events {
+    // Releases are only reported when asked for.
+    if kind == KeyEventKind::Release && !events {
         return None;
     }
     let non_shift = mods.alt || mods.ctrl || mods.logo;
@@ -361,10 +365,25 @@ mod tests {
             enc(ch("c"), None, None, CTRL, KeyEventKind::Repeat, m),
             s("\x1b[99;5:2u")
         );
-        // Without flag 2 releases and repeats are not sent.
+        // Without flag 2 releases are not sent and a repeat is reported as a press.
+        assert_eq!(
+            enc(ch("c"), None, None, CTRL, KeyEventKind::Release, D),
+            None
+        );
         assert_eq!(
             enc(ch("c"), None, None, CTRL, KeyEventKind::Repeat, D),
-            None
+            s("\x1b[99;5u")
+        );
+        assert_eq!(
+            enc(
+                nk(NamedKey::Enter),
+                None,
+                None,
+                SHIFT,
+                KeyEventKind::Repeat,
+                D
+            ),
+            s("\x1b[13;2u")
         );
         assert_eq!(
             enc(

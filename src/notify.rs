@@ -49,7 +49,15 @@ impl Notifier {
             return;
         }
         let spawned = Command::new("notify-send")
-            .args(["-a", "montty", "-i", "montty", "--", title, body])
+            .args([
+                "-a",
+                "montty",
+                "-i",
+                "montty",
+                "--",
+                &escape_markup(title),
+                &escape_markup(body),
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -69,9 +77,25 @@ impl Notifier {
     }
 }
 
+/// Notification servers parse markup in the title and body, and OSC 9/777 text is untrusted.
+fn escape_markup(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn markup_is_escaped() {
+        assert_eq!(
+            escape_markup("a & <b>x</b> &amp;"),
+            "a &amp; &lt;b&gt;x&lt;/b&gt; &amp;amp;"
+        );
+        assert_eq!(escape_markup("plain"), "plain");
+    }
 
     #[test]
     fn allow_rate_limits_per_pane() {
