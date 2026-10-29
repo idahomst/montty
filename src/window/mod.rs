@@ -54,6 +54,7 @@ use crate::layout::{PaneId, Rect};
 use crate::render::Renderer;
 use crate::render::image::ImageTexture;
 use crate::term::colors::resolve;
+use crate::term::osc_scan::Signal;
 use crate::term::pane::{EventSink, Pane, PaneOptions, UserEvent, next_pane_id};
 use crate::term::snapshot::Snapshot;
 use crate::ui::confirm::CloseTarget;
@@ -882,6 +883,16 @@ impl Window {
             _ => {}
         }
         !self.close_requested
+    }
+
+    /// A status or notification sequence from a pane's output. Returns false when the
+    /// window should close (as `handle_term_event`). The reply to a feature query is
+    /// written from here (the UI thread), never from the PTY thread.
+    pub fn handle_signal(&mut self, pane: PaneId, signal: Signal) -> bool {
+        if let (Signal::StatusQuery, Some(p)) = (&signal, self.panes.get(&pane)) {
+            p.write(b"\x1b]7501;?\x1b\\".to_vec());
+        }
+        true
     }
 
     /// Returns false when the window should close (its last pane exited).

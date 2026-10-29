@@ -27,6 +27,9 @@ x11-dl = "2.21"
 unicode-width = "0.2"
 # tcgetpgrp on the PTY master (Pane::has_foreground_child). Already in the tree via alacritty_terminal.
 libc = "0.2"
+# Poller/Event/PollMode in the signatures of the PTY traits that TapPty (src/term/pty_tap.rs) implements.
+# Already in the tree via alacritty_terminal (same version).
+polling = "3.11"
 # Config files (src/config): derive the raw structs that config.toml is parsed into.
 serde = { version = "1", features = ["derive"] }
 # Parses config.toml (and later profiles) with spans, so errors carry line numbers.

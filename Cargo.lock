@@ -932,6 +932,7 @@ dependencies = [
  "memmap2",
  "notify",
  "png",
+ "polling",
  "raw-window-handle",
  "serde",
  "serde_json",

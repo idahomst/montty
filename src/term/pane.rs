@@ -20,10 +20,14 @@ use alacritty_terminal::vte::ansi::CursorStyle;
 use winit::window::WindowId;
 
 use super::PaneId;
+use super::osc_scan::Signal;
+use super::pty_tap::TapPty;
 use crate::render::image::Rgba8;
 
 pub enum UserEvent {
     Term(PaneId, Event),
+    /// A status or notification sequence the PTY tap found in the pane's output.
+    Signal(PaneId, Signal),
     /// A file in the config dir changed (sent from the watcher's thread), for the window
     /// whose watcher saw it.
     ConfigChanged(WindowId),
@@ -168,7 +172,8 @@ impl Pane {
             proxy.clone(),
         )));
 
-        let event_loop = EventLoop::new(term.clone(), proxy, pty, true, false)?;
+        let tap = TapPty::new(pty, id, proxy.sink.clone())?;
+        let event_loop = EventLoop::new(term.clone(), proxy, tap, true, false)?;
         let sender = event_loop.channel();
         event_loop.spawn();
 

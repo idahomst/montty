@@ -187,6 +187,11 @@ impl ApplicationHandler<UserEvent> for App {
                     self.with_window(el, id, false, |w| w.handle_term_event(pane, ev));
                 }
             }
+            UserEvent::Signal(pane, sig) => {
+                if let Some(id) = self.windows.owner_of(pane, |w, p| w.has_pane(p)) {
+                    self.with_window(el, id, false, |w| w.handle_signal(pane, sig));
+                }
+            }
             UserEvent::ConfigChanged(id) => self.with_window(el, id, false, |w| {
                 w.config_changed(Instant::now());
                 true
