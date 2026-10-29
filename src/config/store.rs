@@ -29,6 +29,8 @@ pub struct ReloadReport {
     pub removed: Vec<String>,
     pub added: Vec<String>,
     pub global_changed: bool,
+    /// `kitty_keyboard` in `config.toml` flipped (panes' terminals then take the new value).
+    pub kitty_keyboard_changed: bool,
     /// A config file's text changed since the last reload (also when it doesn't parse,
     /// so its last good version stays), or a file appeared or went away.
     pub edited: bool,
@@ -230,6 +232,7 @@ impl Store {
         let sources = self.reading.finish();
         let mut report = ReloadReport {
             global_changed: self.global != old_global,
+            kitty_keyboard_changed: self.global.kitty_keyboard != old_global.kitty_keyboard,
             edited: sources != std::mem::replace(&mut self.sources, sources),
             ..ReloadReport::default()
         };
@@ -633,6 +636,16 @@ mod tests {
         let r = s.reload();
         assert!(r.global_changed);
         assert_eq!(s.global().default_profile, "x");
+        assert!(!r.kitty_keyboard_changed);
+        t.write("config.toml", "kitty_keyboard = false\n");
+        let r = s.reload();
+        assert!(r.global_changed && r.kitty_keyboard_changed);
+        t.write(
+            "config.toml",
+            "kitty_keyboard = false\ndefault_profile = \"y\"\n",
+        );
+        let r = s.reload();
+        assert!(r.global_changed && !r.kitty_keyboard_changed);
     }
 
     #[test]

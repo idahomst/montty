@@ -285,6 +285,7 @@ fn pane_options(
     env_shell: Option<&str>,
     window_id: Option<u64>,
     cwd: Option<PathBuf>,
+    kitty_keyboard: bool,
 ) -> PaneOptions {
     let runs_command = command.is_some() || p.command.as_ref().is_some_and(|c| !c.is_empty());
     PaneOptions {
@@ -294,7 +295,7 @@ fn pane_options(
         scrollback: p.scrollback,
         cursor: cursor_style(p),
         window_id,
-        kitty_keyboard: true,
+        kitty_keyboard,
     }
 }
 
@@ -446,23 +447,32 @@ fn all_layouts(tabs: &Tabs, area: Rect) -> Vec<(PaneId, Rect)> {
     tabs.iter().flat_map(|t| t.tree.layout(area)).collect()
 }
 
-/// Whether a keyboard event reaches bindings and the PTY: real presses only, plus releases
-/// when the focused pane's program asked for kitty keyboard events (`kitty`). winit sends synthetic presses for keys already held when the window gains
-/// focus (launching montty from a Ctrl+Alt+T hotkey would type ESC ^T), so
-/// they are ignored, as Alacritty does.
+/// Whether a keyboard event is handled at all. winit sends synthetic presses for keys already
+/// held when the window gains focus (launching montty from a Ctrl+Alt+T hotkey would type
+/// ESC ^T), so they are ignored, as Alacritty does.
 fn handles_key(is_synthetic: bool) -> bool {
     !is_synthetic
 }
 
-/// A release `on_key` must not send on: its press ran a binding (forgotten now), or the
-/// modal, find bar or pane drag is up. The key is forgotten either way, so the set can't
-/// swallow a later genuine release.
-fn release_swallowed(
+/// Whether `on_key` stops at this event, keeping `binding_keys` (keys whose press a binding,
+/// the modal, the find bar or a pane drag consumed) in step. A release of such a key must not
+/// reach the PTY, even after the modal closed or focus moved to another pane; the key is
+/// forgotten at its release, so the set can't swallow a later genuine one. Focus loss clears
+/// the set, since the releases then go elsewhere.
+fn key_swallowed(
     binding_keys: &mut HashSet<PhysicalKey>,
     key: PhysicalKey,
+    released: bool,
     ui_has_keys: bool,
 ) -> bool {
-    binding_keys.remove(&key) || ui_has_keys
+    if released {
+        binding_keys.remove(&key) || ui_has_keys
+    } else {
+        if ui_has_keys {
+            binding_keys.insert(key);
+        }
+        false
+    }
 }
 
 /// How long a pane flashes after its bell.
@@ -695,16 +705,14 @@ impl Window {
         // A profile's program that can't start falls back to a shell; `-e` doesn't.
         let mut first_pane = None;
         if session.is_none() {
-            let opts = PaneOptions {
-                kitty_keyboard: store.global().kitty_keyboard,
-                ..pane_options(
-                    &store.profile(&first.stem).profile,
-                    command.clone(),
-                    shell.as_deref(),
-                    x11_window_id,
-                    None,
-                )
-            };
+            let opts = pane_options(
+                &store.profile(&first.stem).profile,
+                command.clone(),
+                shell.as_deref(),
+                x11_window_id,
+                None,
+                store.global().kitty_keyboard,
+            );
             let (mut pane, fallback) =
                 spawn_pane_process(id, &opts, size, &sink, command.is_none(), shell.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -1183,7 +1191,7 @@ impl Window {
             ToastUpdate::Hide => self.dismiss_toast(),
         }
         self.apply_profile_changes(&report);
-        if report.global_changed {
+        if report.kitty_keyboard_changed {
             self.apply_kitty_option();
         }
         self.toast_errors = report.errors;
@@ -1308,11 +1316,9 @@ impl Window {
     fn on_key(&mut self, event: &KeyEvent) {
         let released = event.state == ElementState::Released;
         // Releases only matter to the PTY: the modal, find bar and pane drag ignore them.
-        if released {
-            let ui = self.modal_open() || self.find.is_some() || self.mouse.pane_drag.is_some();
-            if release_swallowed(&mut self.binding_keys, event.physical_key, ui) {
-                return;
-            }
+        let ui = self.modal_open() || self.find.is_some() || self.mouse.pane_drag.is_some();
+        if key_swallowed(&mut self.binding_keys, event.physical_key, released, ui) {
+            return;
         }
         self.had_input = true;
         if self.mouse.pane_drag.is_some() && event.logical_key == Key::Named(NamedKey::Escape) {
@@ -1340,9 +1346,7 @@ impl Window {
             .resolve(&key, event.physical_key, mods)
             && !released
         {
-            if self.kitty_active() {
-                self.binding_keys.insert(event.physical_key);
-            }
+            self.binding_keys.insert(event.physical_key);
             self.stamp_key();
             self.perform(action);
             return;
@@ -1405,14 +1409,6 @@ impl Window {
             self.mark_scrolled(focused);
             self.schedule();
         }
-    }
-
-    /// Whether the focused pane's program pushed any kitty keyboard flag, so releases and
-    /// repeats are worth routing.
-    fn kitty_active(&self) -> bool {
-        self.panes
-            .get(&self.tabs.active().focused)
-            .is_some_and(|p| kitty::active(*p.term.lock().mode()))
     }
 
     /// A key went to a PTY or a binding: the overlay hides until the pointer
@@ -2192,7 +2188,7 @@ mod tests {
             login_shell: true,
             ..Profile::default()
         };
-        let opts = pane_options(&p, None, None, None, None);
+        let opts = pane_options(&p, None, None, None, None, true);
         let size = WindowSize {
             num_cols: 20,
             num_lines: 5,
@@ -2211,21 +2207,45 @@ mod tests {
         let cmdline = std::fs::read(format!("/proc/{}/cmdline", pane.shell_pid())).unwrap();
         assert!(cmdline.starts_with(b"/bin/sh\0"), "{cmdline:?}");
         // -e: no fallback.
-        let e = pane_options(&p, Some(argv(&["/nonexistent/prog"])), None, None, None);
+        let e = pane_options(
+            &p,
+            Some(argv(&["/nonexistent/prog"])),
+            None,
+            None,
+            None,
+            true,
+        );
         assert!(spawn_pane_process(8, &e, size, &sink, false, None).is_err());
+    }
+
+    #[test]
+    fn pane_options_takes_the_kitty_option() {
+        let p = Profile::default();
+        assert!(pane_options(&p, None, None, None, None, true).kitty_keyboard);
+        assert!(!pane_options(&p, None, None, None, None, false).kitty_keyboard);
     }
 
     #[test]
     fn pane_options_sets_working_dir() {
         let p = Profile::default();
-        let o = pane_options(&p, None, None, None, Some(PathBuf::from("/tmp")));
+        let o = pane_options(&p, None, None, None, Some(PathBuf::from("/tmp")), true);
         assert_eq!(o.working_dir, Some(PathBuf::from("/tmp")));
-        assert_eq!(pane_options(&p, None, None, None, None).working_dir, None);
+        assert_eq!(
+            pane_options(&p, None, None, None, None, true).working_dir,
+            None
+        );
     }
 
     #[test]
     fn split_without_cwd_uses_default() {
-        let o = pane_options(&Profile::default(), None, Some("/bin/zsh"), Some(1), None);
+        let o = pane_options(
+            &Profile::default(),
+            None,
+            Some("/bin/zsh"),
+            Some(1),
+            None,
+            true,
+        );
         assert_eq!(o.working_dir, None);
     }
 
@@ -2238,7 +2258,7 @@ mod tests {
             login_shell: true,
             ..Profile::default()
         };
-        let o = pane_options(&p, None, Some("/bin/zsh"), Some(7), None);
+        let o = pane_options(&p, None, Some("/bin/zsh"), Some(7), None, true);
         assert_eq!(o.command, Some(vec!["/bin/zsh".into(), "-l".into()]));
         assert!(!o.runs_command, "a shell");
         assert_eq!((o.scrollback, o.window_id), (500, Some(7)));
@@ -2247,16 +2267,23 @@ mod tests {
             (CursorShape::Beam, true)
         );
         // -e wins over the profile.
-        let o = pane_options(&p, Some(vec!["htop".into()]), Some("/bin/zsh"), None, None);
+        let o = pane_options(
+            &p,
+            Some(vec!["htop".into()]),
+            Some("/bin/zsh"),
+            None,
+            None,
+            true,
+        );
         assert_eq!(o.command, Some(vec!["htop".into()]));
         assert!(o.runs_command);
         // A profile command is a command too.
         p.command = Some(vec!["top".into(), "-d1".into()]);
-        let o = pane_options(&p, None, None, None, None);
+        let o = pane_options(&p, None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["top".into(), "-d1".into()]));
         assert!(o.runs_command);
         // Plan 2 defaults: $SHELL, block cursor without blink, 10 000 lines.
-        let o = pane_options(&Profile::default(), None, None, None, None);
+        let o = pane_options(&Profile::default(), None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["/bin/sh".into()]));
         assert_eq!(o.scrollback, 10_000);
         assert_eq!(
@@ -2431,18 +2458,33 @@ mod tests {
     }
 
     #[test]
-    fn release_of_a_binding_key_is_swallowed_once_even_under_a_modal() {
+    fn release_of_a_consumed_key_is_swallowed_once_even_under_a_modal() {
         use winit::keyboard::KeyCode;
         let k = PhysicalKey::Code(KeyCode::KeyT);
         let mut set = HashSet::from([k]);
         // A modal is up when the release arrives: swallowed, and forgotten.
-        assert!(release_swallowed(&mut set, k, true));
+        assert!(key_swallowed(&mut set, k, true, true));
         assert!(set.is_empty());
         // A later genuine release goes through.
-        assert!(!release_swallowed(&mut set, k, false));
+        assert!(!key_swallowed(&mut set, k, true, false));
         // Another key's release while the modal is up is swallowed, not recorded.
-        assert!(release_swallowed(&mut set, k, true));
+        assert!(key_swallowed(&mut set, k, true, true));
         assert!(set.is_empty());
+    }
+
+    #[test]
+    fn press_consumed_by_ui_swallows_its_release_after_the_ui_is_gone() {
+        use winit::keyboard::KeyCode;
+        let k = PhysicalKey::Code(KeyCode::Escape);
+        let mut set = HashSet::new();
+        // Esc closes the modal (or cancels a drag, or leaves the find bar).
+        assert!(!key_swallowed(&mut set, k, false, true));
+        // The release arrives with nothing open any more: still not sent to the PTY.
+        assert!(key_swallowed(&mut set, k, true, false));
+        assert!(set.is_empty());
+        // A press that reaches the PTY is not recorded, so its release goes there too.
+        assert!(!key_swallowed(&mut set, k, false, false));
+        assert!(!key_swallowed(&mut set, k, true, false));
     }
 
     fn three_tabs() -> Tabs {
