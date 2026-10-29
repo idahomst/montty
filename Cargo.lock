@@ -927,6 +927,7 @@ dependencies = [
  "glutin-winit",
  "jpeg-encoder",
  "libc",
+ "memchr",
  "memmap2",
  "notify",
  "png",
