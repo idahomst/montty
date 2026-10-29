@@ -17,7 +17,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -65,13 +65,13 @@ jobs:
           mkdir -p src-dist
           git archive --prefix="montty-$v/" -o "src-dist/montty-$v.tar.gz" HEAD
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/*
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: source
           path: src-dist/*
@@ -88,9 +88,9 @@ jobs:
             fontconfig ttf-dejavu noto-fonts-emoji \
             libglvnd libx11 libxcursor libxi libxkbcommon libxkbcommon-x11 wayland
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: source
           path: source
@@ -108,7 +108,7 @@ jobs:
           mkdir -p out
           cp /home/builder/build/*.pkg.tar.zst out/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arch
           path: out/*.pkg.tar.zst
@@ -119,12 +119,12 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: files
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: arch
           path: files
@@ -132,7 +132,7 @@ jobs:
       - name: List
         run: ls -l files
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: files/*
           generate_release_notes: true

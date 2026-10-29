@@ -1,6 +1,6 @@
 # Maintainer: Martin Stepanek <38214485+idahomst@users.noreply.github.com>
 pkgname=montty
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc='A tiling terminal emulator inspired by Tilix, without GTK'
 arch=('x86_64')
@@ -10,6 +10,8 @@ depends=(glibc gcc-libs fontconfig libglvnd libx11 libxcursor libxi libxkbcommon
 optdepends=('ttf-dejavu: default monospace font'
             'noto-fonts-emoji: color emoji')
 makedepends=(cargo)
+# No separate montty-debug package.
+options=('!debug')
 # The font tests need a monospace font and a color emoji font.
 checkdepends=(ttf-dejavu noto-fonts-emoji)
 # The file name and the extracted directory (montty-$pkgver) match GitHub's archive of tag v$pkgver.
