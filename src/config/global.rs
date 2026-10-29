@@ -32,6 +32,8 @@ pub struct GlobalConfig {
     pub attention_marks: bool,
     /// Amber marks also raise a desktop notification (`notify-send`).
     pub desktop_notifications: bool,
+    /// Answer and honour the kitty keyboard protocol.
+    pub kitty_keyboard: bool,
     pub bindings: Bindings,
 }
 
@@ -57,6 +59,7 @@ impl Default for GlobalConfig {
             confirm_close_window: true,
             attention_marks: true,
             desktop_notifications: false,
+            kitty_keyboard: true,
             bindings: Bindings::defaults(),
         }
     }
@@ -75,6 +78,7 @@ struct Raw {
     confirm_close_window: Option<bool>,
     attention_marks: Option<bool>,
     desktop_notifications: Option<bool>,
+    kitty_keyboard: Option<bool>,
     keybindings: Option<BTreeMap<String, Spanned<toml::Value>>>,
 }
 
@@ -137,6 +141,9 @@ impl GlobalConfig {
         }
         if let Some(v) = raw.desktop_notifications {
             cfg.desktop_notifications = v;
+        }
+        if let Some(v) = raw.kitty_keyboard {
+            cfg.kitty_keyboard = v;
         }
         // Validate in file order so the first error in the file is the one reported.
         let mut entries: Vec<_> = raw.keybindings.into_iter().flatten().collect();
@@ -281,6 +288,15 @@ mod tests {
         let c = GlobalConfig::parse("desktop_notifications = true", p()).unwrap();
         assert!(c.desktop_notifications);
         assert!(GlobalConfig::parse("desktop_notifications = 3", p()).is_err());
+    }
+
+    #[test]
+    fn kitty_keyboard_default_on_and_parse() {
+        assert!(GlobalConfig::default().kitty_keyboard);
+        assert!(GlobalConfig::parse("", p()).unwrap().kitty_keyboard);
+        let c = GlobalConfig::parse("kitty_keyboard = false", p()).unwrap();
+        assert!(!c.kitty_keyboard);
+        assert!(GlobalConfig::parse("kitty_keyboard = 3", p()).is_err());
     }
 
     #[test]

@@ -84,6 +84,8 @@ pub struct PaneOptions {
     pub cursor: CursorStyle,
     /// X11 window id exported as `WINDOWID`; `None` exports it empty.
     pub window_id: Option<u64>,
+    /// Answer and honour the kitty keyboard protocol (`kitty_keyboard` in `config.toml`).
+    pub kitty_keyboard: bool,
 }
 
 pub struct Pane {
@@ -108,10 +110,11 @@ pub struct Pane {
 
 /// The terminal's options: how much history it keeps and the cursor it resets to. At spawn
 /// and when the pane's profile changes.
-fn term_config(scrollback: usize, cursor: CursorStyle) -> Config {
+fn term_config(scrollback: usize, cursor: CursorStyle, kitty_keyboard: bool) -> Config {
     Config {
         scrolling_history: scrollback,
         default_cursor_style: cursor,
+        kitty_keyboard,
         ..Default::default()
     }
 }
@@ -167,7 +170,7 @@ impl Pane {
 
         let proxy = EventProxy { pane: id, sink };
         let term = Arc::new(FairMutex::new(Term::new(
-            term_config(opts.scrollback, opts.cursor),
+            term_config(opts.scrollback, opts.cursor, opts.kitty_keyboard),
             &term_size(size),
             proxy.clone(),
         )));
@@ -198,10 +201,10 @@ impl Pane {
 
     /// Apply a changed profile's scrollback and cursor: a shorter history drops its oldest
     /// lines now; the cursor applies until a program sets its own.
-    pub fn set_options(&self, scrollback: usize, cursor: CursorStyle) {
+    pub fn set_options(&self, scrollback: usize, cursor: CursorStyle, kitty_keyboard: bool) {
         self.term
             .lock()
-            .set_options(term_config(scrollback, cursor));
+            .set_options(term_config(scrollback, cursor, kitty_keyboard));
     }
 
     pub fn resize(&mut self, size: WindowSize) {

@@ -25,6 +25,7 @@ fn opts(cmd: &[&str]) -> PaneOptions {
         scrollback: 100,
         cursor: Default::default(),
         window_id: None,
+        kitty_keyboard: true,
     }
 }
 
@@ -232,7 +233,7 @@ fn set_options_shrinks_scrollback() {
         pane.term.lock().grid().history_size() >= 400
     });
     assert!(filled, "history {}", pane.term.lock().grid().history_size());
-    pane.set_options(10, Default::default());
+    pane.set_options(10, Default::default(), true);
     assert!(pane.term.lock().grid().history_size() <= 10);
 }
 
@@ -256,7 +257,7 @@ fn set_options_applies_on_the_alt_screen() {
     pane.term.lock().swap_alt();
     assert!(pane.term.lock().grid().history_size() >= 200);
     pane.term.lock().swap_alt();
-    pane.set_options(10, Default::default());
+    pane.set_options(10, Default::default(), true);
     pane.term.lock().swap_alt();
     assert!(pane.term.lock().grid().history_size() <= 10);
 }
@@ -294,4 +295,36 @@ fn cwd_of_deleted_dir_is_none() {
     assert_eq!(pane.cwd(), Some(want), "shell never reached the dir");
     std::fs::remove_dir(&dir).unwrap();
     assert_eq!(pane.cwd(), None);
+}
+
+#[test]
+fn kitty_flags_follow_the_option() {
+    let push = "printf '\\033[>1u'; sleep 3";
+    for (on, want) in [(true, true), (false, false)] {
+        let (tx, rx) = mpsc::channel();
+        let o = PaneOptions {
+            kitty_keyboard: on,
+            ..opts(&["sh", "-c", push])
+        };
+        let pane = Pane::spawn(16, &o, size(20, 5), Arc::new(tx)).unwrap();
+        let seen = eventually(|| {
+            while rx.try_recv().is_ok() {}
+            pane.term
+                .lock()
+                .mode()
+                .contains(TermMode::DISAMBIGUATE_ESC_CODES)
+                == want
+        });
+        // Give the off case time to prove nothing arrives, then check again.
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let got = pane
+            .term
+            .lock()
+            .mode()
+            .contains(TermMode::DISAMBIGUATE_ESC_CODES);
+        assert!(
+            seen && got == want,
+            "kitty_keyboard={on}: flags set = {got}"
+        );
+    }
 }

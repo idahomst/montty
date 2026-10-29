@@ -38,7 +38,7 @@ use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawWindowHandle};
 use winit::dpi::{LogicalSize, PhysicalSize};
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
-use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::keyboard::{Key, ModifiersState, NamedKey, PhysicalKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 use winit::window::{CursorIcon, WindowId};
 
@@ -52,6 +52,7 @@ use crate::font::{FontCache, Metrics, system_db};
 use crate::frame::{FrameScheduler, Schedule};
 use crate::input::Mods;
 use crate::input::keys::{KeyInput, encode_key};
+use crate::input::kitty::{self, KeyEventKind, KittyKey, encode_kitty};
 use crate::layout::{PaneId, Rect};
 use crate::render::Renderer;
 use crate::render::image::ImageTexture;
@@ -293,6 +294,7 @@ fn pane_options(
         scrollback: p.scrollback,
         cursor: cursor_style(p),
         window_id,
+        kitty_keyboard: true,
     }
 }
 
@@ -444,12 +446,12 @@ fn all_layouts(tabs: &Tabs, area: Rect) -> Vec<(PaneId, Rect)> {
     tabs.iter().flat_map(|t| t.tree.layout(area)).collect()
 }
 
-/// Whether a keyboard event reaches bindings and the PTY: real presses only.
-/// winit sends synthetic presses for keys already held when the window gains
+/// Whether a keyboard event reaches bindings and the PTY: real presses only, plus releases
+/// when the focused pane's program asked for kitty keyboard events (`kitty`). winit sends synthetic presses for keys already held when the window gains
 /// focus (launching montty from a Ctrl+Alt+T hotkey would type ESC ^T), so
 /// they are ignored, as Alacritty does.
-fn handles_key(state: ElementState, is_synthetic: bool) -> bool {
-    state == ElementState::Pressed && !is_synthetic
+fn handles_key(state: ElementState, is_synthetic: bool, kitty: bool) -> bool {
+    (state == ElementState::Pressed || kitty) && !is_synthetic
 }
 
 /// How long a pane flashes after its bell.
@@ -532,6 +534,8 @@ pub struct Window {
     size_labels: SizeLabels,
     /// Whether a key or mouse button was pressed yet (a window resize labels only then).
     had_input: bool,
+    /// Physical keys whose press ran a binding: their release isn't sent to the PTY.
+    binding_keys: HashSet<PhysicalKey>,
     /// Until when a `Resized` is the echo of a resize montty asked for (no labels).
     quiet_resize_until: Option<Instant>,
     /// The focused pane's cursor blink cycle.
@@ -680,13 +684,16 @@ impl Window {
         // A profile's program that can't start falls back to a shell; `-e` doesn't.
         let mut first_pane = None;
         if session.is_none() {
-            let opts = pane_options(
-                &store.profile(&first.stem).profile,
-                command.clone(),
-                shell.as_deref(),
-                x11_window_id,
-                None,
-            );
+            let opts = PaneOptions {
+                kitty_keyboard: store.global().kitty_keyboard,
+                ..pane_options(
+                    &store.profile(&first.stem).profile,
+                    command.clone(),
+                    shell.as_deref(),
+                    x11_window_id,
+                    None,
+                )
+            };
             let (mut pane, fallback) =
                 spawn_pane_process(id, &opts, size, &sink, command.is_none(), shell.as_deref())
                     .map_err(|e| e.to_string())?;
@@ -757,6 +764,7 @@ impl Window {
             scrolled: HashMap::new(),
             size_labels: SizeLabels::default(),
             had_input: false,
+            binding_keys: HashSet::new(),
             quiet_resize_until: None,
             blink: Blink::new(now),
             blink_on: false,
@@ -892,7 +900,7 @@ impl Window {
                 event,
                 is_synthetic,
                 ..
-            } if handles_key(event.state, is_synthetic) => self.on_key(&event),
+            } if handles_key(event.state, is_synthetic, self.kitty_active()) => self.on_key(&event),
             WindowEvent::CursorMoved { position, .. } => self.on_cursor_moved(position),
             WindowEvent::CursorLeft { .. } => self.on_cursor_left(),
             WindowEvent::MouseInput { state, button, .. } => self.on_mouse_input(state, button),
@@ -1160,11 +1168,24 @@ impl Window {
             ToastUpdate::Hide => self.dismiss_toast(),
         }
         self.apply_profile_changes(&report);
+        if report.global_changed {
+            self.apply_kitty_option();
+        }
         self.toast_errors = report.errors;
         // Images whose file changed load again. The watched dirs follow: dirs created since
         // (profiles/, schemes/, a new symlink's target dir), dirs no longer needed (a removed
         // link's target dir, the config dir's parent) and the images' dirs.
         self.sync_images(true);
+    }
+
+    /// `kitty_keyboard` may have changed: every pane's terminal takes it (it drops the
+    /// pushed flags when the value flips).
+    fn apply_kitty_option(&self) {
+        let on = self.store.global().kitty_keyboard;
+        for (&id, pane) in &self.panes {
+            let p = &self.pane_profile(id).profile;
+            pane.set_options(p.scrollback, cursor_style(p), on);
+        }
     }
 
     /// Profiles changed, appeared or went away (`r`; the store still has what they were
@@ -1234,7 +1255,11 @@ impl Window {
         if d.term
             && let Some(pane) = self.panes.get(&id)
         {
-            pane.set_options(new.profile.scrollback, cursor_style(&new.profile));
+            pane.set_options(
+                new.profile.scrollback,
+                cursor_style(&new.profile),
+                self.store.global().kitty_keyboard,
+            );
         }
         d
     }
@@ -1266,6 +1291,15 @@ impl Window {
     /// a binding runs; else the key goes to the focused pane's PTY. A key
     /// that runs a binding or reaches the PTY is stamped (hides the overlay).
     fn on_key(&mut self, event: &KeyEvent) {
+        let released = event.state == ElementState::Released;
+        // Releases only matter to the PTY: the modal, find bar and pane drag ignore them.
+        if released && (self.modal_open() || self.find.is_some() || self.mouse.pane_drag.is_some())
+        {
+            return;
+        }
+        if released && self.binding_keys.remove(&event.physical_key) {
+            return;
+        }
         self.had_input = true;
         if self.mouse.pane_drag.is_some() && event.logical_key == Key::Named(NamedKey::Escape) {
             self.mouse.cancel_drag();
@@ -1290,7 +1324,11 @@ impl Window {
             .global()
             .bindings
             .resolve(&key, event.physical_key, mods)
+            && !released
         {
+            if self.kitty_active() {
+                self.binding_keys.insert(event.physical_key);
+            }
             self.stamp_key();
             self.perform(action);
             return;
@@ -1299,13 +1337,42 @@ impl Window {
             return;
         };
         let mut term = pane.term.lock();
-        let input = KeyInput {
-            key: &key,
-            text: event.text.as_deref(),
-            mods,
+        let mode = *term.mode();
+        let kind = match (event.state, event.repeat) {
+            (ElementState::Released, _) => KeyEventKind::Release,
+            (_, true) => KeyEventKind::Repeat,
+            _ => KeyEventKind::Press,
         };
-        let Some(bytes) = encode_key(&input, *term.mode()) else {
-            return;
+        let shifted = match &event.logical_key {
+            Key::Character(l) if mods.shift && key != event.logical_key => l.chars().next(),
+            _ => None,
+        };
+        let text = event.text.as_deref();
+        let kitty_bytes = encode_kitty(
+            &KittyKey {
+                key: &key,
+                shifted,
+                text,
+                mods,
+                kind,
+            },
+            mode,
+        );
+        // Not a kitty case: a press or repeat is the legacy encoding, a release nothing.
+        let bytes = match kitty_bytes {
+            Some(b) => b,
+            None if released => return,
+            None => match encode_key(
+                &KeyInput {
+                    key: &key,
+                    text,
+                    mods,
+                },
+                mode,
+            ) {
+                Some(b) => b,
+                None => return,
+            },
         };
         let scrolled = term.grid().display_offset() != 0;
         if scrolled {
@@ -1319,6 +1386,14 @@ impl Window {
             self.mark_scrolled(focused);
             self.schedule();
         }
+    }
+
+    /// Whether the focused pane's program pushed any kitty keyboard flag, so releases and
+    /// repeats are worth routing.
+    fn kitty_active(&self) -> bool {
+        self.panes
+            .get(&self.tabs.active().focused)
+            .is_some_and(|p| kitty::active(*p.term.lock().mode()))
     }
 
     /// A key went to a PTY or a binding: the overlay hides until the pointer
@@ -2331,10 +2406,12 @@ mod tests {
 
     #[test]
     fn synthetic_presses_are_ignored() {
-        assert!(handles_key(ElementState::Pressed, false));
+        assert!(handles_key(ElementState::Pressed, false, false));
         // Keys held while the window gains focus (e.g. the Ctrl+Alt+T that launched us).
-        assert!(!handles_key(ElementState::Pressed, true));
-        assert!(!handles_key(ElementState::Released, false));
+        assert!(!handles_key(ElementState::Pressed, true, false));
+        assert!(!handles_key(ElementState::Released, false, false));
+        assert!(handles_key(ElementState::Released, false, true));
+        assert!(!handles_key(ElementState::Released, true, true));
     }
 
     fn three_tabs() -> Tabs {

@@ -64,6 +64,12 @@ attention_marks = true
 # At most one per pane per 10 seconds. Default: false.
 desktop_notifications = false
 
+# Answer and honour the kitty keyboard protocol: programs that ask for it (Claude Code >= 2.1.269, neovim, ...) get
+# modified keys such as Shift+Enter as distinct escape codes. Without a request from the program, keys are sent
+# exactly as before. montty's own key bindings still win, and the release of a key a binding used is not sent.
+# Default: true. Applies live; open panes drop the flags their program had pushed when it changes.
+kitty_keyboard = true
+
 # Key bindings. Only list what you want to change.
 [keybindings]
 split_right = "Ctrl+Alt+E"                    # one combo

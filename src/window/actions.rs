@@ -16,7 +16,7 @@ use crate::clipboard::ClipKind;
 use crate::font::Metrics;
 use crate::input::bindings::Action;
 use crate::layout::{Direction, Orientation, PaneId, Rect, RemoveResult, SplitTree};
-use crate::term::pane::{Pane, next_pane_id};
+use crate::term::pane::{Pane, PaneOptions, next_pane_id};
 use crate::ui::confirm::CloseTarget;
 use crate::windows::AppRequest;
 
@@ -217,13 +217,16 @@ impl Window {
         let size = window_size(cols, lines, &font.metrics);
         let shell = std::env::var("SHELL").ok();
         let profile = &self.pane_profile(id).profile;
-        let opts = pane_options(
-            profile,
-            command.clone(),
-            shell.as_deref(),
-            self.x11_window_id,
-            cwd,
-        );
+        let opts = PaneOptions {
+            kitty_keyboard: self.store.global().kitty_keyboard,
+            ..pane_options(
+                profile,
+                command.clone(),
+                shell.as_deref(),
+                self.x11_window_id,
+                cwd,
+            )
+        };
         let result = spawn_pane_process(id, &opts, size, &self.sink, true, shell.as_deref());
         match result {
             Ok((mut p, fallback)) => {

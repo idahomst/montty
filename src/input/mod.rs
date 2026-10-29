@@ -1,5 +1,6 @@
 pub mod bindings;
 pub mod keys;
+pub mod kitty;
 pub mod mouse;
 pub mod paste;
 

@@ -195,6 +195,9 @@ up default to the right/down keys plus Shift (`Ctrl+Alt+Shift+R`, `Ctrl+Alt+Shif
   mouse reporting, selecting copies to PRIMARY, middle click pastes it, the wheel scrolls (alternate scroll on the alt
   screen).
 - Ctrl+click on a URL or OSC 8 link opens it with `xdg-open`.
+- Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
+  `input/kitty.rs` encodes keys for all five. With no flags pushed keys encode as before. Releases and repeats reach
+  the PTY only when the flags ask; bindings win, and the release of a key a binding consumed is dropped.
 - Bell: a visual flash, plus the window's urgency hint when it is not focused.
 - Scrollbar: a thin indicator shown while scrolled back.
 
