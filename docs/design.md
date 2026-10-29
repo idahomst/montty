@@ -196,8 +196,26 @@ up default to the right/down keys plus Shift (`Ctrl+Alt+Shift+R`, `Ctrl+Alt+Shif
   screen).
 - Ctrl+click on a URL or OSC 8 link opens it with `xdg-open`.
 - Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
-  `input/kitty.rs` encodes keys for all five. With no flags pushed keys encode as before. Releases and repeats reach
+  `input/kitty.rs` encodes keys for all five, so Shift+Enter and other modified keys reach agents distinctly (Claude
+  Code >= 2.1.269 uses it). With no flags pushed keys encode as before. Releases and repeats reach
   the PTY only when the flags ask; bindings win, and the release of a key a binding consumed is dropped.
+- Agent status and attention marks: people run coding agents (Claude Code and others) in several panes and tabs and
+  look elsewhere meanwhile, so montty shows which pane needs them, quietly. `alacritty_terminal`'s parser drops OSC
+  sequences it doesn't know, so the PTY reader passes every read to a small scanner (one `memchr` for ESC outside a
+  sequence) and the bytes reach the parser unchanged. The scanner recognises OSC 7501 (the Program Status Protocol:
+  `working`, `blocked`, `done`, `error`, `idle`, per-pane records; montty answers its feature query, and Claude Code
+  >= 2.1.295 reports this way), OSC 9 and OSC 777 `notify` (one-shot notifications), and OSC 133 `A` (a new prompt,
+  which ends a blocked state). Content is untrusted: limits are checked before any record changes and text is
+  sanitised before display.
+- A pane that needs the user while they are not looking at it (not the focused pane of the active tab in a focused
+  window) gets a dot: amber (blocked, notification or bell), red (error) or green (done), on its tab before the title
+  and in the pane's top-right corner when it is visible; a tab shows the most urgent of its panes. Hovering shows the
+  reason. A blocked dot follows the agent's state and goes away when it moves on; the others stay until the pane is
+  looked at. Nothing is shown while an agent is working. The state is pure data with no timers, so an idle window
+  still wakes for nothing. `attention_marks = false` hides the dots.
+- Desktop notifications (`desktop_notifications`, default off) additionally run `notify-send` when a pane turns amber
+  from OSC 7501, OSC 9 or OSC 777, at most once per pane per 10 seconds. It uses the command, not a crate, to keep
+  the dependency tree small; whether it pops up or sounds is the desktop's choice.
 - Bell: a visual flash, plus the window's urgency hint when it is not focused.
 - Scrollbar: a thin indicator shown while scrolled back.
 

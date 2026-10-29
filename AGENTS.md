@@ -29,12 +29,17 @@ Top-level modules (`src/`):
 - `layout/`: pure data. `geom.rs` (rects, constants) and `tree.rs` (binary split tree: split, close, swap, resize, hit-test).
 - `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread, user events),
   `snapshot.rs` (copy of the visible cells taken under a brief lock), `colors.rs`, `links.rs`, `grid_point.rs`.
+  Signals: `osc_scan.rs` (cheap scanner for OSC 7501 / 9 / 777 / 133 in the PTY byte stream, which alacritty's parser
+  drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner and sends each hit as `UserEvent::Signal`),
+  `status.rs` (OSC 7501 agent status parsing, per-pane records, display text; pure, input is untrusted).
 - `render/`: the OpenGL renderer. `atlas.rs` (shelf-packed glyph atlas), `cells.rs` (per-cell instances),
   `rects.rs` (solid rects for chrome and cursor), `image.rs` (background image decode, fit math, quad), `shaders/`.
 - `font/`: font discovery (fontdb), rasterization (swash), fallback, `fc-match` lookup of `monospace`.
 - `ui/`: pure chrome state and geometry, no GL: top bar, menu, panel, confirm, find bar, text field, toast, overlay,
   scrollbar, icons (pixel rects), theme, text helpers.
-- `input/`: key to xterm bytes (`keys.rs`), key-binding parsing and the action table (`bindings.rs`), mouse reporting, paste.
+- `input/`: key to xterm bytes (`keys.rs`), kitty keyboard protocol encoding (`kitty.rs`), key-binding parsing and the
+  action table (`bindings.rs`), mouse reporting, paste.
+- `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).
 - `config/`: `global.rs` (`config.toml`), `profile.rs`, `scheme.rs` (Tilix JSON, built-ins from `assets/schemes`),
   `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify watcher + debounce).
 - `session.rs`: saved-session JSON format, names, atomic writes.
@@ -55,7 +60,8 @@ Top-level modules (`src/`):
 - `modal.rs`: menus, panels, prompts, close confirmation (at most one open; it takes all input).
 - `pane_drag.rs`: drag-to-swap state machine. `sizes.rs`: size labels shown while resizing. `blink.rs`: cursor blink.
 - `images.rs`: background image textures shared per image. `sessions.rs`: saving sessions and the session list.
-- `marks.rs`: attention dots on tabs and panes (placement, hover label); the state is in `attention.rs`.
+- `attention.rs`: pure state of which panes need the user (blocked / error / done) and how urgently; no timers.
+  `marks.rs`: attention dots on tabs and panes (placement, hover label).
 
 Key flows:
 
@@ -67,6 +73,9 @@ Key flows:
   expire on its own: an idle window must not wake (0 % CPU).
 - Rendering: The frame draw (`window/draw.rs`) takes a `Snapshot` of each visible pane under a brief lock, releases it, then does all GPU
   work: one instanced cell draw per pane plus a few for chrome and images. Glyphs go through the per-window atlas.
+- Signals: the PTY reader's tap (`pty_tap.rs` + `osc_scan.rs`) sends `UserEvent::Signal` -> `App` -> the owning
+  `Window` -> `Attention` (`window/attention.rs`) -> dots (`marks.rs`) and, if enabled, `notify.rs`. Status reports
+  are stored per pane in `term/status.rs`. Marks have no timers; focusing a pane clears its "not seen yet" marks.
 - Terminal: each pane owns an `alacritty_terminal` `Term` and a PTY reader thread that wakes the UI through a
   `UserEvent`. The UI thread never blocks on PTY I/O.
 - Config: `config::store::Store` loads `config.toml`, `profiles/*.toml` and `schemes/*.json`; the watcher debounces file events
