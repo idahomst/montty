@@ -15,11 +15,11 @@ use super::sizes::{size_label_rect, size_text};
 use super::{Window, scrollbar_visible};
 use crate::config::GlobalConfig;
 use crate::layout::{Divider, PaneId, Rect};
-use crate::render::RectInstance;
 use crate::render::image;
+use crate::render::{RectInstance, ShapeInstance};
 use crate::term::colors::Rgb;
 use crate::term::snapshot::Highlights;
-use crate::ui::icons::{Icon, icon_rects};
+use crate::ui::icons::{Icon, icon_shapes};
 use crate::ui::overlay::{Overlay, OverlayTarget};
 use crate::ui::scrollbar::scrollbar_thumb;
 use crate::ui::text::display_width;
@@ -213,8 +213,10 @@ impl Window {
         self.overlay = overlay.as_ref().map(|(id, _, hover)| (*id, *hover));
         if let Some((id, o, hover)) = overlay {
             let maximized = self.tabs.active().tree.maximized() == Some(id);
-            let rects = paint_overlay(&o, hover, maximized, self.chrome_stroke());
+            let (rects, icons) =
+                paint_overlay(&o, hover, maximized, self.chrome_stroke(), self.icon_line());
             self.renderer.draw_rects(&rects);
+            self.renderer.draw_shapes(&icons);
         }
     }
 
@@ -475,16 +477,17 @@ pub(super) fn border_rects(r: Rect, s: i32) -> Vec<Rect> {
 
 /// The pane overlay: OVERLAY_BG inside a `stroke` px OVERLAY_BORDER, the
 /// hovered button in HOVER (Close in CLOSE_HOVER, as in the bar) within the
-/// border, then the icons: Restore instead of Maximize while the pane is
-/// maximized. An empty overlay (tiny pane) paints nothing.
+/// border, then the icons (`line` px strokes): Restore instead of Maximize while the
+/// pane is maximized. An empty overlay (tiny pane) paints nothing.
 pub(super) fn paint_overlay(
     o: &Overlay,
     hover: Option<OverlayTarget>,
     maximized: bool,
     stroke: i32,
-) -> Vec<RectInstance> {
+    line: f32,
+) -> (Vec<RectInstance>, Vec<ShapeInstance>) {
     if o.items.is_empty() {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let fill = |rect: Rect, color: [f32; 4]| RectInstance { rect, color };
     let r = o.bg;
@@ -520,6 +523,7 @@ pub(super) fn paint_overlay(
             }
         }
     }
+    let mut icons = Vec::new();
     for &(rect, target) in &o.items {
         let icon = match target {
             OverlayTarget::Grip => Icon::Grip,
@@ -528,13 +532,9 @@ pub(super) fn paint_overlay(
             OverlayTarget::Maximize => Icon::Maximize,
             OverlayTarget::Close => Icon::Close,
         };
-        out.extend(
-            icon_rects(icon, rect, stroke)
-                .into_iter()
-                .map(|r| fill(r, theme::ICON)),
-        );
+        icons.extend(icon_shapes(icon, rect, line, theme::ICON));
     }
-    out
+    (out, icons)
 }
 
 #[cfg(test)]
@@ -836,7 +836,7 @@ mod tests {
     #[test]
     fn paint_overlay_frame_and_icons() {
         let o = overlay();
-        let out = paint_overlay(&o, None, false, 1);
+        let (out, shapes) = paint_overlay(&o, None, false, 1, 2.0);
         // The translucent bg must not cover the border: it fills only the inside.
         assert_eq!(with(&out, theme::OVERLAY_BG), vec![o.bg.inset(1)]);
         let border = with(&out, theme::OVERLAY_BORDER);
@@ -848,17 +848,16 @@ mod tests {
         assert!(with(&out, theme::HOVER).is_empty());
         assert!(with(&out, theme::CLOSE_HOVER).is_empty());
         let (pr, m, c) = (o.items[0].0, o.items[1].0, o.items[2].0);
-        let mut icons = icon_rects(Icon::Profile, pr, 1);
-        icons.extend(icon_rects(Icon::Maximize, m, 1));
-        icons.extend(icon_rects(Icon::Close, c, 1));
-        assert_eq!(with(&out, theme::ICON), icons);
-        assert_eq!(out.last().unwrap().color, theme::ICON);
+        let mut icons = icon_shapes(Icon::Profile, pr, 2.0, theme::ICON);
+        icons.extend(icon_shapes(Icon::Maximize, m, 2.0, theme::ICON));
+        icons.extend(icon_shapes(Icon::Close, c, 2.0, theme::ICON));
+        assert_eq!(shapes, icons);
         // Maximized: Restore.
-        let out = paint_overlay(&o, None, true, 1);
-        let mut icons = icon_rects(Icon::Profile, pr, 1);
-        icons.extend(icon_rects(Icon::Restore, m, 1));
-        icons.extend(icon_rects(Icon::Close, c, 1));
-        assert_eq!(with(&out, theme::ICON), icons);
+        let (_, shapes) = paint_overlay(&o, None, true, 1, 2.0);
+        let mut icons = icon_shapes(Icon::Profile, pr, 2.0, theme::ICON);
+        icons.extend(icon_shapes(Icon::Restore, m, 2.0, theme::ICON));
+        icons.extend(icon_shapes(Icon::Close, c, 2.0, theme::ICON));
+        assert_eq!(shapes, icons);
     }
 
     #[test]
@@ -866,7 +865,7 @@ mod tests {
         let o = overlay();
         let (pr, m, c) = (o.items[0].0, o.items[1].0, o.items[2].0);
         let inner = o.bg.inset(2);
-        let out = paint_overlay(&o, Some(OverlayTarget::Close), false, 2);
+        let (out, _) = paint_overlay(&o, Some(OverlayTarget::Close), false, 2, 4.0);
         assert_eq!(
             with(&out, theme::CLOSE_HOVER),
             vec![Rect {
@@ -877,7 +876,7 @@ mod tests {
             }]
         );
         assert!(with(&out, theme::HOVER).is_empty());
-        let out = paint_overlay(&o, Some(OverlayTarget::Maximize), false, 2);
+        let (out, _) = paint_overlay(&o, Some(OverlayTarget::Maximize), false, 2, 4.0);
         assert_eq!(
             with(&out, theme::HOVER),
             vec![Rect {
@@ -887,7 +886,7 @@ mod tests {
                 h: inner.h
             }]
         );
-        let out = paint_overlay(&o, Some(OverlayTarget::Profile), false, 2);
+        let (out, _) = paint_overlay(&o, Some(OverlayTarget::Profile), false, 2, 4.0);
         assert_eq!(
             with(&out, theme::HOVER),
             vec![Rect {
@@ -912,10 +911,10 @@ mod tests {
         };
         let og = overlay_layout(pane, &bm, 4, true);
         assert_eq!(og.items[0].1, OverlayTarget::Grip);
-        let out = paint_overlay(&og, Some(OverlayTarget::Grip), false, 2);
+        let (out, icons) = paint_overlay(&og, Some(OverlayTarget::Grip), false, 2, 4.0);
         assert_eq!(with(&out, theme::HOVER).len(), 1);
-        // The hover goes under the icons.
-        assert_eq!(out.last().unwrap().color, theme::ICON);
+        // The icons are strokes drawn over the rects, so the hover is under them.
+        assert!(icons.len() > 6 && icons.iter().all(|i| i.color == theme::ICON));
     }
 
     #[test]
@@ -929,6 +928,7 @@ mod tests {
             },
             items: Vec::new(),
         };
-        assert!(paint_overlay(&o, Some(OverlayTarget::Close), true, 1).is_empty());
+        let (rects, shapes) = paint_overlay(&o, Some(OverlayTarget::Close), true, 1, 2.0);
+        assert!(rects.is_empty() && shapes.is_empty());
     }
 }

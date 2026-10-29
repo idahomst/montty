@@ -1,10 +1,11 @@
-//! OpenGL renderer: instanced cell and rect pipelines over one glyph atlas, and textured
-//! quads for background images.
+//! OpenGL renderer: instanced cell, rect and stroke pipelines over one glyph atlas, and
+//! textured quads for background images.
 
 pub mod atlas;
 pub mod cells;
 pub mod image;
 pub mod rects;
+pub mod shapes;
 
 use glow::HasContext;
 
@@ -17,6 +18,8 @@ use cells::{CellInstance, CellPipeline, CellUniforms, CursorStyle};
 use image::{ImagePipeline, ImageTexture, Rgba8};
 pub use rects::RectInstance;
 use rects::RectPipeline;
+use shapes::ShapePipeline;
+pub use shapes::{Shape, ShapeInstance};
 
 /// The atlas GL texture, borrowed with its context for uploads.
 pub struct GlTexture<'a> {
@@ -81,6 +84,7 @@ const MAX_ATLAS_SIZE: u32 = 8192;
 pub struct Renderer {
     gl: glow::Context,
     rects: RectPipeline,
+    shapes: ShapePipeline,
     cells: CellPipeline,
     images: ImagePipeline,
     atlas: GlyphAtlas,
@@ -118,11 +122,13 @@ impl Renderer {
             gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, as_bytes(&corners), glow::STATIC_DRAW);
 
             let rects = RectPipeline::new(&gl, quad)?;
+            let shapes = ShapePipeline::new(&gl, quad)?;
             let cells = CellPipeline::new(&gl, quad)?;
             let images = ImagePipeline::new(&gl, quad)?;
             Ok(Renderer {
                 gl,
                 rects,
+                shapes,
                 cells,
                 images,
                 atlas: GlyphAtlas::new(atlas_size, max.min(MAX_ATLAS_SIZE)),
@@ -296,6 +302,10 @@ impl Renderer {
 
     pub fn draw_rects(&mut self, rects: &[RectInstance]) {
         self.rects.draw(&self.gl, &self.proj, rects);
+    }
+
+    pub fn draw_shapes(&mut self, shapes: &[ShapeInstance]) {
+        self.shapes.draw(&self.gl, &self.proj, shapes);
     }
 
     /// The largest texture side the GL supports; images are downscaled to fit it.

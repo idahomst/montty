@@ -14,7 +14,7 @@ use crate::input::bindings::Action;
 use crate::layout::Rect;
 use crate::render::RectInstance;
 use crate::ui::findbar::{FindKey, FindLayout, FindTarget, findbar_hit, findbar_layout};
-use crate::ui::icons::{Icon, icon_rects};
+use crate::ui::icons::{Icon, icon_shapes};
 use crate::ui::text::display_width;
 use crate::ui::theme;
 use crate::ui::topbar::BarMetrics;
@@ -157,7 +157,13 @@ fn runs_from_bar(a: Action) -> bool {
 /// The bar's rects and labels: the overlay's panel, the field like the rename field
 /// (border, text, beam; the text highlighted while it is all selected; `no matches`
 /// at its right end when it fits) and the four buttons.
-pub(super) fn paint_find(l: &FindLayout, bar: &FindBar, bm: &BarMetrics, stroke: i32) -> BarPaint {
+pub(super) fn paint_find(
+    l: &FindLayout,
+    bar: &FindBar,
+    bm: &BarMetrics,
+    stroke: i32,
+    line: f32,
+) -> BarPaint {
     let mut out = BarPaint::default();
     let r = l.rect;
     if r.w <= 2 * stroke || r.h <= 2 * stroke {
@@ -235,11 +241,8 @@ pub(super) fn paint_find(l: &FindLayout, bar: &FindBar, bm: &BarMetrics, stroke:
             FindTarget::Field | FindTarget::Close => "",
         };
         if target == FindTarget::Close {
-            out.icons.extend(
-                icon_rects(Icon::Close, b, stroke)
-                    .into_iter()
-                    .map(|i| fill(i, theme::ICON)),
-            );
+            out.shapes
+                .extend(icon_shapes(Icon::Close, b, line, theme::ICON));
         }
         if target == FindTarget::Case && bar.match_case {
             out.under.push(fill(b.inset(half), theme::ACCENT));
@@ -449,7 +452,13 @@ impl Window {
         let (Some(l), Some(f)) = (self.find_layout(), self.find.as_ref()) else {
             return;
         };
-        let p = paint_find(&l, &f.bar, &self.bar_metrics(), self.chrome_stroke());
+        let p = paint_find(
+            &l,
+            &f.bar,
+            &self.bar_metrics(),
+            self.chrome_stroke(),
+            self.icon_line(),
+        );
         self.draw_paint(&p);
     }
 }
@@ -491,7 +500,7 @@ mod tests {
 
     fn paint(b: &FindBar, w: i32) -> BarPaint {
         let l = findbar_layout(Rect { w, ..pane() }, &bm(), 4);
-        paint_find(&l, b, &bm(), 1)
+        paint_find(&l, b, &bm(), 1, 2.0)
     }
 
     fn fills(p: &BarPaint, color: [f32; 4]) -> usize {
@@ -613,7 +622,7 @@ mod tests {
         assert_eq!(texts, ["a", "\u{2191}", "\u{2193}", "Aa"]);
         assert_eq!(fills(&p, ACCENT), 1);
         // The close icon is drawn in ICON.
-        assert!(p.icons.iter().any(|i| i.color == theme::ICON));
+        assert!(!p.shapes.is_empty() && p.shapes.iter().all(|i| i.color == theme::ICON));
         // Aa on: filled with ACCENT.
         b.match_case = true;
         assert_eq!(fills(&paint(&b, 800), ACCENT), 2);
@@ -649,7 +658,8 @@ mod tests {
     #[test]
     fn tiny_pane_paints_nothing() {
         let l = findbar_layout(Rect { w: 6, ..pane() }, &bm(), 4);
-        let p = paint_find(&l, &bar("x"), &bm(), 1);
+        let p = paint_find(&l, &bar("x"), &bm(), 1, 2.0);
         assert!(p.under.is_empty() && p.labels.is_empty() && p.icons.is_empty());
+        assert!(p.shapes.is_empty());
     }
 }

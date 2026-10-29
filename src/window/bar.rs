@@ -15,10 +15,10 @@ use super::modal::{Modal, PromptPurpose, editing_label, resolve_rename};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
 use crate::layout::{PaneId, Rect};
-use crate::render::RectInstance;
+use crate::render::{RectInstance, ShapeInstance};
 use crate::term::colors::Rgb;
 use crate::ui::confirm::CloseTarget;
-use crate::ui::icons::{Icon, icon_rects};
+use crate::ui::icons::{Icon, icon_shapes};
 use crate::ui::theme;
 use crate::ui::topbar::{Bar, BarMetrics, Target, hit, layout, resize_edge, tab_label};
 use crate::ui::{DOUBLE_CLICK, edge_px};
@@ -179,6 +179,8 @@ pub(super) struct BarPaint {
     pub under: Vec<RectInstance>,
     pub labels: Vec<Label>,
     pub icons: Vec<RectInstance>,
+    /// Antialiased icon strokes, drawn last.
+    pub shapes: Vec<ShapeInstance>,
 }
 
 /// The bar's rects and labels for a window `width` px wide. The active tab has
@@ -193,7 +195,7 @@ pub(super) fn paint(
     active: usize,
     hover: Option<Target>,
     maximized: bool,
-    stroke: i32,
+    line: f32,
     underline: i32,
     accent: [f32; 4],
     marks: &[Option<Level>],
@@ -237,11 +239,8 @@ pub(super) fn paint(
             out.under.push(fill(item.rect, bg));
         }
         if let Some(icon) = icon {
-            out.icons.extend(
-                icon_rects(icon, item.rect, stroke)
-                    .into_iter()
-                    .map(|r| fill(r, theme::ICON)),
-            );
+            out.shapes
+                .extend(icon_shapes(icon, item.rect, line, theme::ICON));
         }
     }
     if let Some(item) = bar.items.iter().find(|i| i.target == Target::Tab(active)) {
@@ -282,6 +281,11 @@ pub(super) fn paint(
 /// The active-tab underline thickness: 3 px at scale 1.
 pub(super) fn underline_px(scale: f64) -> i32 {
     ((3.0 * scale).round() as i32).max(1)
+}
+
+/// The icon line width: 2 px at scale 1, in whole px.
+pub(super) fn icon_line_px(scale: f64) -> f32 {
+    (2.0 * scale).round().max(1.0) as f32
 }
 
 impl Window {
@@ -346,6 +350,11 @@ impl Window {
         (self.scale.round() as i32).max(1)
     }
 
+    /// Icon line width: 2 px at scale 1, rounded to whole px so straight edges stay sharp.
+    pub(super) fn icon_line(&self) -> f32 {
+        icon_line_px(self.scale)
+    }
+
     /// Draw the bar. The hover is recomputed from the last pointer position
     /// first, so it is never stale after tabs or titles changed.
     pub(super) fn draw_bar(&mut self) {
@@ -357,7 +366,7 @@ impl Window {
             self.tabs.active_index(),
             self.hover,
             self.maximized,
-            self.chrome_stroke(),
+            self.icon_line(),
             underline_px(self.scale),
             ChromeColors::of(self.store.global()).border,
             &self.tab_marks(),
@@ -376,6 +385,7 @@ impl Window {
             }
         }
         self.renderer.draw_rects(&p.icons);
+        self.renderer.draw_shapes(&p.shapes);
     }
 
     /// Edge-resize zone width: `edge_px(scale)` (4 px at scale 1), the
@@ -700,7 +710,7 @@ mod tests {
     #[test]
     fn paint_backgrounds_and_labels() {
         let bar = two_tabs();
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
+        let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         // The bar background comes first and spans the window.
         assert_eq!(
             p.under[0],
@@ -723,13 +733,13 @@ mod tests {
         assert_eq!((l.text.as_str(), l.color), ("bash", to_rgb(TEXT)));
         assert_eq!((l.x, l.y, l.clip), (6, 6, bar.tabs[0].text_rect));
         assert_eq!(p.labels[1].color, to_rgb(TEXT_DIM));
-        assert!(p.icons.iter().all(|i| i.color == ICON));
+        assert!(p.shapes.iter().all(|i| i.color == ICON));
     }
 
     #[test]
     fn paint_icons_for_every_button_and_tab_close() {
         let bar = two_tabs();
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
+        let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         let mut expected = 0;
         for (t, icon) in [
             (Target::TabClose(0), Icon::Close),
@@ -743,24 +753,24 @@ mod tests {
             (Target::Maximize, Icon::Maximize),
             (Target::Close, Icon::Close),
         ] {
-            let rects = icon_rects(icon, rect_of(&bar, t), 1);
-            for r in &rects {
-                assert!(p.icons.iter().any(|i| i.rect == *r), "{t:?} {r:?}");
+            let shapes = icon_shapes(icon, rect_of(&bar, t), 2.0, ICON);
+            for sh in &shapes {
+                assert!(p.shapes.contains(sh), "{t:?} {sh:?}");
             }
-            expected += rects.len();
+            expected += shapes.len();
         }
-        assert_eq!(p.icons.len(), expected);
+        assert_eq!(p.shapes.len(), expected);
         // Maximized: the Maximize button shows Restore.
-        let p = paint(&bar, 800, 0, None, true, 1, 3, ACCENT_T, &[]);
-        for r in icon_rects(Icon::Restore, rect_of(&bar, Target::Maximize), 1) {
-            assert!(p.icons.iter().any(|i| i.rect == r));
+        let p = paint(&bar, 800, 0, None, true, 2.0, 3, ACCENT_T, &[]);
+        for sh in icon_shapes(Icon::Restore, rect_of(&bar, Target::Maximize), 2.0, ICON) {
+            assert!(p.shapes.contains(&sh));
         }
     }
 
     #[test]
     fn paint_hover() {
         let bar = two_tabs();
-        let hovered = |t| paint(&bar, 800, 0, Some(t), false, 1, 3, ACCENT_T, &[]);
+        let hovered = |t| paint(&bar, 800, 0, Some(t), false, 2.0, 3, ACCENT_T, &[]);
         let p = hovered(Target::Tab(1));
         assert_eq!(color_at(&p, rect_of(&bar, Target::Tab(1))), [HOVER]);
         // The active tab keeps the terminal background.
@@ -778,7 +788,7 @@ mod tests {
         // Only the hovered item changes.
         assert_eq!(
             p.under.len(),
-            paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[])
+            paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[])
                 .under
                 .len()
                 + 1
@@ -794,6 +804,15 @@ mod tests {
     }
 
     #[test]
+    fn icon_line_px_scales() {
+        assert_eq!(icon_line_px(1.0), 2.0);
+        assert_eq!(icon_line_px(1.25), 3.0);
+        assert_eq!(icon_line_px(1.5), 3.0);
+        assert_eq!(icon_line_px(2.0), 4.0);
+        assert_eq!(icon_line_px(0.2), 1.0);
+    }
+
+    #[test]
     fn active_tab_has_underline_last_in_under() {
         for active in [0, 1] {
             let bar = two_tabs();
@@ -803,7 +822,7 @@ mod tests {
                 active,
                 Some(Target::TabClose(active)),
                 false,
-                1,
+                2.0,
                 3,
                 ACCENT_T,
                 &[],
@@ -829,7 +848,7 @@ mod tests {
     #[test]
     fn single_tab_is_underlined() {
         let bar = layout(800, &bm(), &["bash".to_string()], 0, &[]);
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
+        let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         assert_eq!(p.under.last().unwrap().color, ACCENT_T);
     }
 
@@ -838,7 +857,7 @@ mod tests {
         let ls = ["bash".to_string(), "vim".to_string()];
         let bar = layout(800, &bm(), &ls, 0, &[false, true]);
         let marks = [None, Some(Level::Blocked)];
-        let p = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &marks);
+        let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &marks);
         let dot = bar.tabs[1].dot_rect.unwrap();
         let discs: Vec<_> = p
             .icons
@@ -847,7 +866,7 @@ mod tests {
             .collect();
         assert_eq!(discs.len() as i32, dot.h);
         assert!(discs.iter().all(|r| dot.contains(r.rect.x, r.rect.y)));
-        let none = paint(&bar, 800, 0, None, false, 1, 3, ACCENT_T, &[]);
+        let none = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         assert!(none.icons.iter().all(|r| r.color != theme::MARK_BLOCKED));
     }
 }

@@ -33,10 +33,11 @@ Top-level modules (`src/`):
   drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner and sends each hit as `UserEvent::Signal`),
   `status.rs` (OSC 7501 agent status parsing, per-pane records, display text; pure, input is untrusted).
 - `render/`: the OpenGL renderer. `atlas.rs` (shelf-packed glyph atlas), `cells.rs` (per-cell instances),
-  `rects.rs` (solid rects for chrome and cursor), `image.rs` (background image decode, fit math, quad), `shaders/`.
+  `rects.rs` (solid rects for chrome and cursor), `shapes.rs` (antialiased strokes for icons: round-capped lines,
+  rounded-rect outlines, rings), `image.rs` (background image decode, fit math, quad), `shaders/`.
 - `font/`: font discovery (fontdb), rasterization (swash), fallback, `fc-match` lookup of `monospace`.
 - `ui/`: pure chrome state and geometry, no GL: top bar, menu, panel, confirm, find bar, text field, toast, overlay,
-  scrollbar, icons (pixel rects), theme, text helpers.
+  scrollbar, icons (stroke geometry), theme, text helpers.
 - `input/`: key to xterm bytes (`keys.rs`), kitty keyboard protocol encoding (`kitty.rs`), key-binding parsing and the
   action table (`bindings.rs`), mouse reporting, paste.
 - `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).

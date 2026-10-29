@@ -1,6 +1,7 @@
-//! Button icons as pixel rects (no font or texture needed).
+//! Button icons as antialiased strokes (no font or texture needed), and the attention dot.
 
 use crate::layout::Rect;
+use crate::render::{Shape, ShapeInstance};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
@@ -43,131 +44,107 @@ pub fn disc_rects(cx: i32, cy: i32, diameter: i32) -> Vec<Rect> {
         .collect()
 }
 
-/// Rects forming `icon`, centered in `bounds` inside a square of side
-/// `min(w, h) / 2` rounded to even, drawn with lines `stroke` px thick.
-pub fn icon_rects(icon: Icon, bounds: Rect, stroke: i32) -> Vec<Rect> {
+/// Antialiased strokes forming `icon` in `color`, `line` px wide, centred in `bounds` inside
+/// a square of side `min(w, h) / 2` rounded to even. Shapes follow a 24-unit grid whose
+/// span 3..21 maps onto the square (Lucide's geometry); straight edges are snapped so the
+/// stroke covers whole pixels and stays sharp.
+pub fn icon_shapes(icon: Icon, bounds: Rect, line: f32, color: [f32; 4]) -> Vec<ShapeInstance> {
     let side = (((bounds.w.min(bounds.h).max(0) as f32 * 0.5) / 2.0).round() as i32) * 2;
     if side == 0 {
         return Vec::new();
     }
-    let s = stroke.clamp(1, (side / 2).max(1));
-    let g = Rect {
-        x: bounds.x + (bounds.w - side) / 2,
-        y: bounds.y + (bounds.h - side) / 2,
-        w: side,
-        h: side,
+    // Very small icons (the pane overlay's at scale 1) get thinner lines, so they stay open.
+    let w = line.min(side as f32 / 6.0).max(1.0);
+    let k = side as f32 / 18.0;
+    let (gx, gy) = (
+        (bounds.x + (bounds.w - side) / 2) as f32,
+        (bounds.y + (bounds.h - side) / 2) as f32,
+    );
+    // Grid units to px. The + for a new tab is drawn at three quarters of the others' size.
+    let scale = if icon == Icon::Plus { 0.75 } else { 1.0 };
+    let (cx, cy) = (gx + side as f32 / 2.0, gy + side as f32 / 2.0);
+    let px = |u: f32, v: f32| [cx + (u - 12.0) * k * scale, cy + (v - 12.0) * k * scale];
+    let snap = |v: f32| (v - w / 2.0).round() + w / 2.0;
+    let sp = |u: f32, v: f32| {
+        let [x, y] = px(u, v);
+        [snap(x), snap(y)]
     };
-    let rect = |dx: i32, dy: i32, w: i32, h: i32| Rect {
-        x: g.x + dx,
-        y: g.y + dy,
-        w,
-        h,
+    let st = |shape: Shape, width: f32| ShapeInstance {
+        shape,
+        width,
+        color,
     };
-    let mid = (side - s) / 2;
+    let ln = |a: [f32; 2], b: [f32; 2]| st(Shape::Line { a, b }, w);
     let mut out = Vec::new();
+    let boxed = |u0: f32, v0: f32, u1: f32, v1: f32| {
+        let ([x0, y0], [x1, y1]) = (sp(u0, v0), sp(u1, v1));
+        Shape::RoundRect {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+            r: 2.0 * k,
+        }
+    };
     match icon {
         Icon::SplitRight => {
-            outline(&mut out, g, s);
-            out.push(rect(mid, 0, s, side));
+            out.push(ln(sp(12.0, 3.0), sp(12.0, 21.0)));
+            out.push(st(boxed(3.0, 3.0, 21.0, 21.0), w));
         }
         Icon::SplitDown => {
-            outline(&mut out, g, s);
-            out.push(rect(0, mid, side, s));
+            out.push(ln(sp(3.0, 12.0), sp(21.0, 12.0)));
+            out.push(st(boxed(3.0, 3.0, 21.0, 21.0), w));
         }
         Icon::Menu => {
-            let step = mid;
-            let top = (side - (2 * step + s)) / 2;
-            for i in 0..3 {
-                out.push(rect(0, top + i * step, side, s));
+            for v in [6.0, 12.0, 18.0] {
+                out.push(ln(sp(4.0, v), sp(20.0, v)));
             }
         }
         Icon::Plus => {
-            out.push(rect(0, mid, side, s));
-            out.push(rect(mid, 0, s, side));
+            out.push(ln(sp(5.0, 12.0), sp(19.0, 12.0)));
+            out.push(ln(sp(12.0, 5.0), sp(12.0, 19.0)));
         }
-        Icon::Minimize => out.push(rect(0, side - s, side, s)),
-        Icon::Maximize => outline(&mut out, g, s),
+        Icon::Minimize => out.push(ln(sp(5.0, 18.0), sp(19.0, 18.0))),
+        Icon::Maximize => out.push(st(boxed(4.0, 4.0, 20.0, 20.0), w)),
         Icon::Restore => {
-            // Front square lower-left; the back one shows only its top and right edges.
-            let d = (side / 4).max(s + 1).min(side - 1);
-            let f = side - d;
-            outline(&mut out, rect(0, d, f, f), s);
-            out.push(rect(d, 0, side - d, s));
-            out.push(rect(side - s, s, s, f - s));
+            // A front square at the lower left; of the one behind it only the top and right
+            // edges show.
+            out.push(st(boxed(3.0, 9.0, 15.0, 21.0), w));
+            out.push(ln(sp(9.0, 3.0), sp(21.0, 3.0)));
+            out.push(ln(sp(21.0, 3.0), sp(21.0, 15.0)));
         }
         Icon::Profile => {
-            // A palette as a small bar chart: three bars, bottoms aligned, each
-            // shorter than the one to its left; at least `s` wide, spread over the side.
-            let bw = s.max(side / 5).min(side / 3);
-            let gap = (side - 3 * bw) / 2;
-            let x0 = (side - 3 * bw - 2 * gap) / 2;
-            for i in 0..3 {
-                let h = side * (3 - i) / 3;
-                out.push(rect(x0 + i * (bw + gap), side - h, bw, h));
+            // A palette as a small bar chart: three bars, bottoms aligned, each shorter.
+            for (u, top) in [(6.0, 4.0), (12.0, 10.0), (18.0, 15.0)] {
+                out.push(ln(sp(u, top), sp(u, 20.0)));
             }
         }
         Icon::Find => {
-            // A magnifier: a hollow square ring of ⅔ of the side at the top-left and a
-            // two-step diagonal handle running to the bottom-right corner.
-            let ring = (side * 2 / 3).max(1);
-            outline(&mut out, rect(0, 0, ring, ring), s);
-            let d = side - ring;
-            let a = (d / 2).max(1).min(d);
-            out.push(rect(ring, ring, a, a));
-            out.push(rect(ring + a, ring + a, d - a, d - a));
+            // A round lens and a handle at 45 degrees.
+            let [x, y] = px(11.0, 11.0);
+            out.push(st(
+                Shape::Ring {
+                    c: [x, y],
+                    r: 7.5 * k,
+                },
+                w,
+            ));
+            out.push(ln(px(16.3, 16.3), px(20.5, 20.5)));
         }
         Icon::Grip => {
-            // Six dots in two columns of three, centered. Dots are `s` square,
-            // spread over the side when it has room for gaps.
-            let d = s.min(side / 4).max(1);
-            let gx = (side - 2 * d) / 3 + d;
-            let gy = (side - 3 * d) / 2 + d;
-            let (x0, y0) = ((side - gx - d) / 2, (side - 2 * gy - d) / 2);
-            for col in 0..2 {
-                for row in 0..3 {
-                    out.push(rect(x0 + col * gx, y0 + row * gy, d, d));
+            for u in [9.0, 15.0] {
+                for v in [6.0, 12.0, 18.0] {
+                    let p = px(u, v);
+                    out.push(st(Shape::Line { a: p, b: p }, (w * 1.5).min(3.6 * k)));
                 }
             }
-            // A glyph too small for six dots keeps those that fit.
-            out.retain(|r| {
-                r.x >= g.x && r.y >= g.y && r.x + r.w <= g.x + side && r.y + r.h <= g.y + side
-            });
         }
         Icon::Close => {
-            for r in 0..=(side - s) {
-                out.push(rect(r, r, s, s));
-                out.push(rect(side - s - r, r, s, s));
-            }
+            out.push(ln(px(5.0, 5.0), px(19.0, 19.0)));
+            out.push(ln(px(19.0, 5.0), px(5.0, 19.0)));
         }
     }
-    out.retain(|r| r.w > 0 && r.h > 0);
     out
-}
-
-/// Square outline of thickness `s` (a solid fill when too small to have a hollow).
-fn outline(out: &mut Vec<Rect>, r: Rect, s: i32) {
-    if r.w <= 2 * s || r.h <= 2 * s {
-        out.push(r);
-        return;
-    }
-    out.push(Rect { h: s, ..r });
-    out.push(Rect {
-        y: r.y + r.h - s,
-        h: s,
-        ..r
-    });
-    out.push(Rect {
-        y: r.y + s,
-        w: s,
-        h: r.h - 2 * s,
-        ..r
-    });
-    out.push(Rect {
-        x: r.x + r.w - s,
-        y: r.y + s,
-        w: s,
-        h: r.h - 2 * s,
-    });
 }
 
 #[cfg(test)]
@@ -198,22 +175,52 @@ mod tests {
         r.x >= b.x && r.y >= b.y && r.x + r.w <= b.x + b.w && r.y + r.h <= b.y + b.h
     }
 
+    const C: [f32; 4] = [0.8, 0.8, 0.8, 1.0];
+
+    /// The centre-line extent of a shape: (x0, y0, x1, y1).
+    fn extent(s: &Shape) -> (f32, f32, f32, f32) {
+        match *s {
+            Shape::Line { a, b } => (
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[0].max(b[0]),
+                a[1].max(b[1]),
+            ),
+            Shape::RoundRect { x, y, w, h, .. } => (x, y, x + w, y + h),
+            Shape::Ring { c, r } => (c[0] - r, c[1] - r, c[0] + r, c[1] + r),
+        }
+    }
+
+    fn union(shapes: &[ShapeInstance]) -> (f32, f32, f32, f32) {
+        shapes.iter().map(|s| extent(&s.shape)).fold(
+            (f32::MAX, f32::MAX, f32::MIN, f32::MIN),
+            |(a, b, c, d), (x0, y0, x1, y1)| (a.min(x0), b.min(y0), c.max(x1), d.max(y1)),
+        )
+    }
+
     #[test]
     fn icons_stay_inside_bounds() {
         for icon in ALL {
-            for stroke in [1, 2] {
-                let rects = icon_rects(icon, B, stroke);
-                assert!(!rects.is_empty(), "{icon:?}");
-                for r in rects {
-                    assert!(r.w > 0 && r.h > 0, "{icon:?} s{stroke} empty {r:?}");
-                    assert!(inside(r, B), "{icon:?} s{stroke} outside {r:?}");
+            for side in [16, 24, 32, 41] {
+                let b = Rect {
+                    w: side,
+                    h: side,
+                    ..B
+                };
+                for line in [1.0, 2.0, 3.0, 4.0] {
+                    let shapes = icon_shapes(icon, b, line, C);
+                    assert!(!shapes.is_empty(), "{icon:?}");
+                    for s in shapes {
+                        assert!(inside(s.bounds(), b), "{icon:?} {side} {line} {s:?}");
+                        assert_eq!(s.color, C);
+                    }
                 }
             }
         }
     }
 
     #[test]
-    fn tiny_bounds_do_not_panic_or_overflow() {
+    fn tiny_bounds_do_not_panic() {
         for icon in ALL {
             for side in [0, 1, 2, 5] {
                 let b = Rect {
@@ -222,141 +229,171 @@ mod tests {
                     w: side,
                     h: side,
                 };
-                for r in icon_rects(icon, b, 2) {
-                    assert!(r.w > 0 && r.h > 0 && inside(r, b), "{icon:?} {side} {r:?}");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn split_right_has_outline_and_vertical_bar() {
-        // side 12, glyph at (16, 26)..(28, 38); center x = 16 + (12 - 1) / 2.
-        let rects = icon_rects(Icon::SplitRight, B, 1);
-        assert!(
-            rects
-                .iter()
-                .any(|r| r.w == 1 && r.h == 12 && r.x == 16 + 5 && r.y == 26)
-        );
-    }
-
-    #[test]
-    fn split_down_has_horizontal_bar() {
-        let rects = icon_rects(Icon::SplitDown, B, 1);
-        assert!(
-            rects
-                .iter()
-                .any(|r| r.h == 1 && r.w == 12 && r.y == 26 + 5 && r.x == 16)
-        );
-    }
-
-    #[test]
-    fn close_is_symmetric_x() {
-        for stroke in [1, 2] {
-            let rects = icon_rects(Icon::Close, B, stroke);
-            let mirror = |r: &Rect| Rect {
-                x: 2 * 16 + 12 - r.x - r.w,
-                ..*r
-            };
-            let mut a: Vec<_> = rects.iter().map(|r| (r.x, r.y, r.w, r.h)).collect();
-            let mut b: Vec<_> = rects
-                .iter()
-                .map(mirror)
-                .map(|r| (r.x, r.y, r.w, r.h))
-                .collect();
-            a.sort();
-            b.sort();
-            assert_eq!(a, b);
-        }
-    }
-
-    #[test]
-    fn menu_has_three_bars() {
-        let rects = icon_rects(Icon::Menu, B, 1);
-        assert_eq!(rects.len(), 3);
-        assert!(rects.iter().all(|r| r.w == 12 && r.h == 1));
-        let gap = |i: usize| rects[i + 1].y - rects[i].y;
-        assert_eq!(gap(0), gap(1));
-    }
-
-    #[test]
-    fn plus_crosses_at_center() {
-        let rects = icon_rects(Icon::Plus, B, 1);
-        assert_eq!(rects.len(), 2);
-    }
-
-    #[test]
-    fn minimize_sits_at_bottom() {
-        let rects = icon_rects(Icon::Minimize, B, 2);
-        assert_eq!(
-            rects,
-            vec![Rect {
-                x: 16,
-                y: 26 + 12 - 2,
-                w: 12,
-                h: 2
-            }]
-        );
-    }
-
-    #[test]
-    fn find_is_a_ring_with_a_two_step_handle() {
-        // side 12 at (16, 26): the ring is 8 wide, the handle two 2x2 steps from its
-        // bottom-right corner to the glyph's.
-        let rects = icon_rects(Icon::Find, B, 1);
-        let at = |x: i32, y: i32, w: i32| rects.contains(&Rect { x, y, w, h: w });
-        assert!(at(16 + 8, 26 + 8, 2), "{rects:?}");
-        assert!(at(16 + 10, 26 + 10, 2), "{rects:?}");
-        // Four ring edges and the two steps.
-        assert_eq!(rects.len(), 6);
-        // The ring is hollow: no rect covers its middle.
-        assert!(!rects.iter().any(|r| r.contains(16 + 4, 26 + 4)));
-        let right = rects.iter().map(|r| r.x + r.w).max().unwrap();
-        let bottom = rects.iter().map(|r| r.y + r.h).max().unwrap();
-        assert_eq!((right, bottom), (16 + 12, 26 + 12));
-    }
-
-    #[test]
-    fn grip_is_six_dots() {
-        let rects = icon_rects(Icon::Grip, B, 1);
-        assert_eq!(rects.len(), 6);
-        assert!(rects.iter().all(|r| r.w == rects[0].w && r.h == rects[0].w));
-        for (i, a) in rects.iter().enumerate() {
-            assert!(inside(*a, B), "{a:?}");
-            for b in &rects[i + 1..] {
-                let apart =
-                    a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
-                assert!(apart, "{a:?} {b:?}");
-            }
-        }
-    }
-
-    #[test]
-    fn icon_profile_within_bounds() {
-        // The overlay's button side at scales 0.5..3 (cell_h + edge_px), and odd sizes.
-        for side in [6, 10, 13, 20, 24, 29, 40, 61] {
-            let b = Rect {
-                x: 7,
-                y: 9,
-                w: side,
-                h: side,
-            };
-            for stroke in [1, 2, 3, 4] {
-                let rects = icon_rects(Icon::Profile, b, stroke);
-                assert_eq!(rects.len(), 3, "{side} s{stroke}");
-                for r in &rects {
+                for s in icon_shapes(icon, b, 2.0, C) {
+                    let (x0, y0, x1, y1) = extent(&s.shape);
                     assert!(
-                        r.w > 0 && r.h > 0 && inside(*r, b),
-                        "{side} s{stroke} {r:?}"
+                        [x0, y0, x1, y1].iter().all(|v| v.is_finite()),
+                        "{icon:?} {side}"
                     );
                 }
-                // Left to right, not overlapping, bottoms aligned, heights decreasing.
-                for w in rects.windows(2) {
-                    assert!(w[0].x + w[0].w <= w[1].x, "{side} s{stroke} {rects:?}");
-                    assert_eq!(w[0].y + w[0].h, w[1].y + w[1].h);
-                    assert!(w[0].h > w[1].h, "{side} s{stroke} {rects:?}");
+            }
+        }
+        assert!(icon_shapes(Icon::Close, Rect { w: 0, ..B }, 2.0, C).is_empty());
+    }
+
+    #[test]
+    fn straight_strokes_cover_whole_pixels() {
+        // A stroke `line` px wide centred on its line ends on pixel edges, so it stays sharp.
+        for line in [1.0f32, 2.0, 3.0] {
+            for icon in [
+                Icon::SplitRight,
+                Icon::SplitDown,
+                Icon::Menu,
+                Icon::Plus,
+                Icon::Minimize,
+                Icon::Maximize,
+                Icon::Restore,
+                Icon::Profile,
+            ] {
+                for s in icon_shapes(icon, B, line, C) {
+                    let (x0, y0, x1, y1) = extent(&s.shape);
+                    for v in [x0, y0, x1, y1] {
+                        let edge = v - s.width / 2.0;
+                        assert!((edge - edge.round()).abs() < 1e-4, "{icon:?} {line} {s:?}");
+                    }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn small_icons_get_thinner_lines() {
+        // Side 12 caps the line at 2 px; side 16 keeps the requested 2.
+        assert!(
+            icon_shapes(Icon::Close, B, 3.0, C)
+                .iter()
+                .all(|s| s.width == 2.0)
+        );
+        let b16 = Rect { w: 32, h: 32, ..B };
+        assert!(
+            icon_shapes(Icon::Close, b16, 2.0, C)
+                .iter()
+                .all(|s| s.width == 2.0)
+        );
+    }
+
+    #[test]
+    fn square_icons_are_centred() {
+        let (cx, cy) = (B.x as f32 + 12.0, B.y as f32 + 12.0);
+        for icon in [
+            Icon::SplitRight,
+            Icon::SplitDown,
+            Icon::Menu,
+            Icon::Plus,
+            Icon::Maximize,
+            Icon::Close,
+            Icon::Grip,
+        ] {
+            for line in [1.0, 2.0] {
+                let (x0, y0, x1, y1) = union(&icon_shapes(icon, B, line, C));
+                assert!(((x0 + x1) / 2.0 - cx).abs() <= 0.5, "{icon:?} {line}");
+                assert!(((y0 + y1) / 2.0 - cy).abs() <= 0.5, "{icon:?} {line}");
+            }
+        }
+    }
+
+    #[test]
+    fn split_icons_divide_their_frame() {
+        let right = icon_shapes(Icon::SplitRight, B, 2.0, C);
+        let down = icon_shapes(Icon::SplitDown, B, 2.0, C);
+        assert!(matches!(right[0].shape, Shape::Line { a, b } if a[0] == b[0]));
+        assert!(matches!(down[0].shape, Shape::Line { a, b } if a[1] == b[1]));
+        for s in [&right, &down] {
+            assert!(matches!(s[1].shape, Shape::RoundRect { r, .. } if r > 0.0));
+        }
+    }
+
+    #[test]
+    fn plus_is_smaller_than_the_other_icons() {
+        let width = |icon| {
+            let (x0, _, x1, _) = union(&icon_shapes(icon, B, 2.0, C));
+            x1 - x0
+        };
+        assert!(
+            width(Icon::Plus) < 0.8 * width(Icon::Menu),
+            "{} {}",
+            width(Icon::Plus),
+            width(Icon::Menu)
+        );
+    }
+
+    #[test]
+    fn menu_has_three_evenly_spaced_bars() {
+        let ys: Vec<f32> = icon_shapes(Icon::Menu, B, 2.0, C)
+            .iter()
+            .map(|s| extent(&s.shape).1)
+            .collect();
+        assert_eq!(ys.len(), 3);
+        assert_eq!(ys[1] - ys[0], ys[2] - ys[1]);
+    }
+
+    #[test]
+    fn minimize_sits_low() {
+        let (_, y0, _, _) = union(&icon_shapes(Icon::Minimize, B, 2.0, C));
+        assert!(y0 > B.y as f32 + 12.0 + 3.0, "{y0}");
+    }
+
+    #[test]
+    fn find_is_a_ring_with_a_diagonal_handle() {
+        let s = icon_shapes(Icon::Find, B, 2.0, C);
+        assert_eq!(s.len(), 2);
+        let Shape::Ring { c, r } = s[0].shape else {
+            panic!("{s:?}")
+        };
+        let Shape::Line { a, b } = s[1].shape else {
+            panic!("{s:?}")
+        };
+        // The handle leaves the lens at its lower right and runs at 45 degrees.
+        assert!(((b[0] - a[0]) - (b[1] - a[1])).abs() < 1e-3 && b[0] > a[0]);
+        let gap = ((a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2)).sqrt() - r;
+        assert!(gap.abs() < 0.1, "{gap}");
+    }
+
+    #[test]
+    fn restore_is_a_front_frame_and_two_back_edges() {
+        let s = icon_shapes(Icon::Restore, B, 2.0, C);
+        assert_eq!(s.len(), 3);
+        assert!(matches!(s[0].shape, Shape::RoundRect { .. }));
+    }
+
+    #[test]
+    fn grip_is_six_separate_dots() {
+        let s = icon_shapes(Icon::Grip, B, 2.0, C);
+        assert_eq!(s.len(), 6);
+        let dots: Vec<[f32; 2]> = s
+            .iter()
+            .map(|d| match d.shape {
+                Shape::Line { a, b } if a == b => a,
+                _ => panic!("{d:?}"),
+            })
+            .collect();
+        for (i, p) in dots.iter().enumerate() {
+            for q in &dots[i + 1..] {
+                let dist = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt();
+                assert!(dist > s[0].width + 1.5, "{p:?} {q:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn profile_bars_are_bottom_aligned_and_shrink() {
+        let s = icon_shapes(Icon::Profile, B, 2.0, C);
+        assert_eq!(s.len(), 3);
+        let e: Vec<_> = s.iter().map(|b| extent(&b.shape)).collect();
+        for w in e.windows(2) {
+            assert!(w[0].0 < w[1].0);
+            assert_eq!(w[0].3, w[1].3);
+            assert!(w[0].3 - w[0].1 > w[1].3 - w[1].1, "{e:?}");
         }
     }
 

@@ -86,7 +86,8 @@ Failures even if everything else works:
   the split buttons split left and up.
 - Dragging empty bar space moves the window; double-clicking it toggles maximize.
 - A tab's label is the focused pane's title (OSC 0/2) unless the tab was renamed (double-click it).
-- Icons are drawn by montty as pixel rectangles; there is no icon theme lookup.
+- Icons are drawn by montty as antialiased strokes (2 px at scale 1, round caps, Lucide-like shapes on a 24-unit
+  grid, straight edges snapped to whole pixels); there is no icon theme lookup and no SVG library.
 
 **Panes**
 - No per-pane title bars. Panes are separated by 1 px gray dividers with a drag zone a few pixels wider; the pointer
