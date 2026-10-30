@@ -255,7 +255,7 @@ pub(super) fn menu_items(bindings: &Bindings) -> Vec<MenuItem> {
     ]
 }
 
-/// The menu a right-click in a pane opens: splits, then the clipboard. Copy is
+/// The menu a right-click in a pane opens: the four splits, then the clipboard. Copy is
 /// greyed out when the pane has no selection.
 pub(super) fn pane_menu_items(bindings: &Bindings, has_selection: bool) -> Vec<MenuItem> {
     let item = |label: &str, a: Action, action| MenuItem {
@@ -270,6 +270,8 @@ pub(super) fn pane_menu_items(bindings: &Bindings, has_selection: bool) -> Vec<M
     vec![
         item("Split right", Action::SplitRight, MenuAction::SplitRight),
         item("Split down", Action::SplitDown, MenuAction::SplitDown),
+        item("Split left", Action::SplitLeft, MenuAction::SplitLeft),
+        item("Split up", Action::SplitUp, MenuAction::SplitUp),
         MenuItem {
             label: String::new(),
             shortcut: None,
@@ -1073,11 +1075,16 @@ impl Window {
                     self.open_session(&name);
                 }
             }
-            MenuAction::SplitRight | MenuAction::SplitDown => {
+            MenuAction::SplitRight
+            | MenuAction::SplitDown
+            | MenuAction::SplitLeft
+            | MenuAction::SplitUp => {
                 self.set_modal(Modal::None);
                 self.perform(match a {
                     MenuAction::SplitRight => Action::SplitRight,
-                    _ => Action::SplitDown,
+                    MenuAction::SplitDown => Action::SplitDown,
+                    MenuAction::SplitLeft => Action::SplitLeft,
+                    _ => Action::SplitUp,
                 });
             }
             MenuAction::Copy | MenuAction::Paste => {
@@ -1913,6 +1920,12 @@ mod tests {
             [
                 row("Split right", Some("Ctrl+Alt+R"), MenuAction::SplitRight),
                 row("Split down", Some("Ctrl+Alt+D"), MenuAction::SplitDown),
+                row(
+                    "Split left",
+                    Some("Ctrl+Alt+Shift+L"),
+                    MenuAction::SplitLeft
+                ),
+                row("Split up", Some("Ctrl+Alt+Shift+D"), MenuAction::SplitUp),
                 row("", None, MenuAction::Separator),
                 row("Copy", Some("Ctrl+Shift+C"), MenuAction::Copy),
                 row("Paste", Some("Ctrl+Shift+V"), MenuAction::Paste),
@@ -1921,9 +1934,29 @@ mod tests {
         // Nothing selected: Copy shows, greyed out.
         let items = pane_menu_items(&b, false);
         assert_eq!(
-            (items[3].label.as_str(), items[3].action),
+            (items[5].label.as_str(), items[5].action),
             ("Copy", MenuAction::Disabled)
         );
+    }
+
+    #[test]
+    fn pane_menu_shows_rebound_shortcuts() {
+        let k = |s: &str| s.parse::<KeyCombo>().unwrap();
+        let b = Bindings::with_overrides(
+            Bindings::defaults(),
+            &[
+                (Action::SplitLeft, vec![k("Ctrl+Alt+E")]),
+                (Action::Paste, Vec::new()),
+            ],
+        );
+        let items = pane_menu_items(&b, true);
+        let shortcut = |l: &str| {
+            let i = items.iter().find(|i| i.label == l).unwrap();
+            i.shortcut.as_deref()
+        };
+        assert_eq!(shortcut("Split left"), Some("Ctrl+Alt+E"));
+        // Unbound: the row stays, without a shortcut.
+        assert_eq!(shortcut("Paste"), None);
     }
 
     #[test]
@@ -1941,7 +1974,7 @@ mod tests {
         let bm = bm();
         let m = Menu::new(pane_menu_items(&Bindings::defaults(), true), 400, 28);
         let r = m.rect(&bm);
-        let sep = m.item_rects(&bm)[2];
+        let sep = m.item_rects(&bm)[4];
         let p = paint_menu(&m, &bm, 1);
         // The frame, then one border-coloured line across the separator row.
         let lines: Vec<Rect> = colored(&p, PANEL_BORDER)

@@ -82,7 +82,7 @@ Failures even if everything else works:
 **Top bar**
 - Left: one tab per session (label and ✕), then `+` for a new tab. The active tab has a 3 px underline in the
   focus-border color along its bottom edge; nothing else about the tab changes.
-- Right: split right, split down, find, the ≡ menu, and the window buttons (minimize, maximize, close). With Alt held,
+- Right: split right, split down, find, the ≡ menu, and the window buttons (minimize, maximize, close). With Shift held,
   the split buttons split left and up.
 - Dragging empty bar space moves the window; double-clicking it toggles maximize.
 - A tab's label is the focused pane's title (OSC 0/2) unless the tab was renamed (double-click it).
@@ -186,15 +186,16 @@ file changes, and dropped when no pane shows it.
 Tilix's defaults, rebindable in `config.toml` with plain combo strings such as `split_right = "Ctrl+Alt+R"`
 (`"none"` unbinds). A montty binding wins over the terminal application; unbind it to pass the key through. The
 complete list of actions and defaults is in [config.md](config.md#actions-and-their-default-keys). Splitting left and
-up default to the right/down keys plus Shift (`Ctrl+Alt+Shift+R`, `Ctrl+Alt+Shift+D`).
+up default to `Ctrl+Alt+Shift+L` and `Ctrl+Alt+Shift+D` (not `Ctrl+Alt+Shift+R`: Cinnamon and GNOME record the screen
+with it).
 
 ## 11. Terminal behaviour
 
 - Whatever `alacritty_terminal` supports (truecolor, bracketed paste, mouse reporting, alt screen, OSC 8 hyperlinks,
   OSC 52 writes) is exposed; montty adds no emulation of its own.
 - Mouse: drag selects, double-click selects a word, triple-click a line, Alt+drag a block, Shift bypasses a program's
-  mouse reporting, selecting copies to PRIMARY, middle click pastes it, right-click opens a pane menu (split right,
-  split down, copy, paste) at the pointer, the wheel scrolls (alternate scroll on the alt screen).
+  mouse reporting, selecting copies to PRIMARY, middle click pastes it, right-click opens a pane menu (the four
+  splits, copy, paste) at the pointer, the wheel scrolls (alternate scroll on the alt screen).
 - Ctrl+click on a URL or OSC 8 link opens it with `xdg-open`.
 - Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
   `input/kitty.rs` encodes keys for all five, so Shift+Enter and other modified keys reach agents distinctly (Claude

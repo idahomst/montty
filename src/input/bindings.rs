@@ -437,7 +437,8 @@ impl Bindings {
         };
         bind("Ctrl+Alt+R", SplitRight);
         bind("Ctrl+Alt+D", SplitDown);
-        bind("Ctrl+Alt+Shift+R", SplitLeft);
+        // Not Ctrl+Alt+Shift+R: Cinnamon and GNOME record the screen with it.
+        bind("Ctrl+Alt+Shift+L", SplitLeft);
         bind("Ctrl+Alt+Shift+D", SplitUp);
         bind("Ctrl+Alt+A", SplitAuto);
         bind("Alt+Up", FocusUp);
@@ -593,7 +594,9 @@ mod tests {
         assert_eq!(b.lookup(&k("Ctrl+Alt+R")), Some(Action::SplitRight));
         assert_eq!(b.lookup(&k("Ctrl+Alt+D")), Some(Action::SplitDown));
         assert_eq!(b.lookup(&k("Ctrl+Alt+A")), Some(Action::SplitAuto));
-        assert_eq!(b.lookup(&k("Ctrl+Alt+Shift+R")), Some(Action::SplitLeft));
+        // Not Ctrl+Alt+Shift+R: Cinnamon and GNOME record the screen with it.
+        assert_eq!(b.lookup(&k("Ctrl+Alt+Shift+L")), Some(Action::SplitLeft));
+        assert_eq!(b.lookup(&k("Ctrl+Alt+Shift+R")), None);
         assert_eq!(b.lookup(&k("Ctrl+Alt+Shift+D")), Some(Action::SplitUp));
         assert_eq!(Action::SplitLeft.config_name(), "split_left");
         assert_eq!(Action::SplitUp.config_name(), "split_up");

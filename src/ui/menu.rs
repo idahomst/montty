@@ -31,6 +31,8 @@ pub enum MenuAction {
     OpenSession(usize),
     SplitRight,
     SplitDown,
+    SplitLeft,
+    SplitUp,
     Copy,
     Paste,
     /// A thin line between groups of rows: never chosen, skipped by the arrow keys.

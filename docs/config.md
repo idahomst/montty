@@ -109,7 +109,7 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 |---|---|
 | `split_right` | `Ctrl+Alt+R` |
 | `split_down` | `Ctrl+Alt+D` |
-| `split_left` | `Ctrl+Alt+Shift+R` |
+| `split_left` | `Ctrl+Alt+Shift+L` |
 | `split_up` | `Ctrl+Alt+Shift+D` |
 | `split_auto` | `Ctrl+Alt+A` |
 | `focus_up` | `Alt+Up` |
@@ -218,13 +218,14 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - A paste scrolls the pane to the bottom, like typing. In bracketed-paste mode the text is wrapped in the
   bracketed-paste markers and any ESC and Ctrl+C characters in it are removed; otherwise line breaks become `\r`.
 - If the clipboard can't be opened, copy and paste do nothing, and `montty: clipboard: <error>` is printed once.
-- Right-click in a pane opens a menu at the pointer: Split right, Split down, Copy and Paste, each with its shortcut.
-  The pane takes the focus, so a split opens next to it and Paste goes into it. The selection stays; Copy is greyed
+- Right-click in a pane opens a menu at the pointer: Split right, Split down, Split left, Split up, Copy and Paste,
+  each with its shortcut as bound now (a rebinding in `config.toml` shows there). The pane takes the focus, so a split opens next to it and Paste goes into it. The selection stays; Copy is greyed
   out without one. Esc or a click outside closes the menu.
 
 ### Panes
 
-Alt+click on the Split right / Split down buttons splits left / up instead.
+Shift+click on the Split right / Split down buttons splits left / up instead. (Not Alt+click: Cinnamon, Xfce and
+MATE move the window with it.)
 
 Press on a pane's overlay (the grip, left of the buttons, is made for it) and drag at least a few pixels onto another
 pane of the same tab: the two swap places and sizes, both programs keep running, and the dragged pane takes the

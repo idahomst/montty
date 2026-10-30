@@ -97,13 +97,14 @@ pub(super) enum BarAction {
 }
 
 /// The action for a press of `button` on `target`; `double` when it completes a
-/// double-click; `alt` when Alt is held, which turns the split buttons into split left / up.
+/// double-click; `shift` when Shift is held, which turns the split buttons into split left / up
+/// (not Alt: Cinnamon, Xfce and MATE move the window on Alt+click).
 /// Middle-click closes a tab; other buttons do nothing.
 pub(super) fn press_action(
     target: Target,
     button: MouseButton,
     double: bool,
-    alt: bool,
+    shift: bool,
 ) -> Option<BarAction> {
     use BarAction as A;
     match (button, target) {
@@ -114,8 +115,8 @@ pub(super) fn press_action(
             Target::Tab(i) => A::SelectTab(i),
             Target::TabClose(i) => A::CloseTab(i),
             Target::NewTab => A::Perform(Action::NewTab),
-            Target::SplitRight if alt => A::Perform(Action::SplitLeft),
-            Target::SplitDown if alt => A::Perform(Action::SplitUp),
+            Target::SplitRight if shift => A::Perform(Action::SplitLeft),
+            Target::SplitDown if shift => A::Perform(Action::SplitUp),
             Target::SplitRight => A::Perform(Action::SplitRight),
             Target::SplitDown => A::Perform(Action::SplitDown),
             Target::Menu => A::OpenMenu,
@@ -474,7 +475,7 @@ impl Window {
                 false
             }
         };
-        if let Some(action) = press_action(target, button, double, self.modifiers.alt_key()) {
+        if let Some(action) = press_action(target, button, double, self.modifiers.shift_key()) {
             self.run_bar_action(action);
         }
         true
@@ -626,7 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn alt_click_splits_left_or_up() {
+    fn shift_click_splits_left_or_up() {
         let a = |t| press_action(t, MouseButton::Left, false, true);
         assert_eq!(
             a(Target::SplitRight),
