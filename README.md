@@ -4,7 +4,7 @@ A tiling terminal emulator for Linux, inspired by [Tilix](https://gnunn1.github.
 with no GTK or Qt. It keeps what makes Tilix pleasant (splitting panes, tabs, profiles, saved sessions) and aims to be
 small, fast and idle-quiet: it is drawn with OpenGL, runs on X11 and Wayland, and uses no CPU while nothing happens.
 
-![montty with two tabs and three panes: a file tree, a shell with the pane buttons shown, and Claude Code over a background image](docs/screenshot.png)
+![montty with three panes: a file tree, a shell with the pane buttons shown, and Claude Code](docs/screenshot.png)
 
 ## Features
 
