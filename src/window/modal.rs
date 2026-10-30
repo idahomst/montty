@@ -25,9 +25,7 @@ use crate::ui::confirm::{
     CANCEL_LABEL, CLOSE_LABEL, CloseTarget, Confirm, ConfirmButton, ConfirmOutcome,
     confirm_message, panes_message,
 };
-use crate::ui::menu::{
-    CHECK, MIN_COLS, Menu, MenuAction, MenuItem, MenuOutcome, profile_menu_items,
-};
+use crate::ui::menu::{CHECK, MIN_COLS, Menu, MenuAction, MenuItem, MenuOutcome, profile_menu};
 use crate::ui::panel::{InfoPanel, PanelRow, more_text};
 use crate::ui::text::{display_width, truncate};
 use crate::ui::textfield::{FieldOutcome, TextField};
@@ -36,6 +34,8 @@ use crate::ui::topbar::{BarMetrics, Target, tab_label};
 
 /// The save prompt's title and its width in columns.
 pub(super) const SAVE_PROMPT_TITLE: &str = "Save session";
+/// The new profile prompt's title.
+pub(super) const NEW_PROFILE_TITLE: &str = "New profile";
 const SAVE_PROMPT_COLS: i32 = 40;
 
 /// The open modal widget, if any. Opening one replaces the current one.
@@ -73,6 +73,24 @@ pub(super) enum PromptPurpose {
     },
     /// The name to save the session under: a titled panel over the window.
     SaveSession,
+    /// The name of a new profile copied from `pane`'s, which then switches to it: a
+    /// titled panel like `SaveSession`.
+    NewProfile { pane: PaneId },
+}
+
+/// The title of `modal` when it is a prompt shown as a titled panel.
+pub(super) fn prompt_title(modal: &Modal) -> Option<&'static str> {
+    match modal {
+        Modal::Prompt {
+            purpose: PromptPurpose::SaveSession,
+            ..
+        } => Some(SAVE_PROMPT_TITLE),
+        Modal::Prompt {
+            purpose: PromptPurpose::NewProfile { .. },
+            ..
+        } => Some(NEW_PROFILE_TITLE),
+        _ => None,
+    }
 }
 
 /// What a profile menu switches: `pane`, to one of `stems` (`Store::stems` when
@@ -715,9 +733,10 @@ pub(super) fn save_prompt_layout(
     (panel, title, field)
 }
 
-/// The save prompt: a PANEL_BG panel in PANEL_BORDER with the title `Save session`
-/// (TEXT) over the name field, drawn like the rename field.
-pub(super) fn paint_save_prompt(
+/// A titled prompt (save session, new profile): a PANEL_BG panel in PANEL_BORDER with
+/// `title_text` (TEXT) over the name field, drawn like the rename field.
+pub(super) fn paint_titled_prompt(
+    title_text: &str,
     field: &TextField,
     win_w: i32,
     win_h: i32,
@@ -732,7 +751,7 @@ pub(super) fn paint_save_prompt(
     out.labels.push(Label {
         x: title.x,
         y: title.y,
-        text: truncate(SAVE_PROMPT_TITLE, cols),
+        text: truncate(title_text, cols),
         color: theme::to_rgb(theme::TEXT),
         clip: title,
     });
@@ -777,25 +796,30 @@ impl Window {
         });
     }
 
+    /// The profile pane `pane` runs under: its own, or the default when that is unknown.
+    pub(super) fn current_stem(&self, pane: PaneId) -> &str {
+        let stem = self.pane_stem(pane);
+        match self.store.contains(stem) {
+            true => stem,
+            false => self.store.default_stem(),
+        }
+    }
+
     /// The Profile button (`button`) of pane `pane`'s overlay clicked: a row per
-    /// profile, the one the pane resolves to marked, hanging from the button (see
-    /// `profile_menu_origin`). No profiles (built-in defaults only): nothing.
+    /// profile, the one the pane resolves to marked, then editing it and creating a new
+    /// one, hanging from the button (see `profile_menu_origin`). No profiles and no
+    /// config folder: nothing.
     pub(super) fn open_profile_menu(&mut self, pane: PaneId, button: Rect) {
         let stems = self.store.stems();
-        if stems.is_empty() {
+        let files = self.user_config_dir().is_some();
+        if stems.is_empty() && !files {
             return;
         }
-        let stem = self.pane_stem(pane);
-        // An unknown stem runs under the default profile.
-        let current = if self.store.contains(stem) {
-            stem
-        } else {
-            self.store.default_stem()
-        };
+        let current = self.current_stem(pane);
         let bm = self.bar_metrics();
         let (w, h) = self.size_px();
         let (max_rows, max_cols) = profile_menu_limits(button, w, h, &bm);
-        let items = profile_menu_items(&stems, current, max_rows, max_cols);
+        let items = profile_menu(&stems, current, files, max_rows, max_cols);
         let probe = Menu::new(items, 0, 0);
         let r = probe.rect(&bm);
         let (x, y) = profile_menu_origin(button, r.w, r.h, w, h);
@@ -981,6 +1005,10 @@ impl Window {
             }
             | Modal::Menu {
                 pane: Some(pane), ..
+            }
+            | Modal::Prompt {
+                purpose: PromptPurpose::NewProfile { pane },
+                ..
             } => !target_alive(&CloseTarget::Pane(*pane), &self.tabs, &self.panes),
             _ => false,
         };
@@ -1028,6 +1056,10 @@ impl Window {
                 purpose: PromptPurpose::SaveSession,
                 ..
             } => self.commit_save(text),
+            Modal::Prompt {
+                purpose: PromptPurpose::NewProfile { pane },
+                ..
+            } => self.commit_new_profile(*pane, text),
             _ => {}
         }
     }
@@ -1098,6 +1130,24 @@ impl Window {
                     (MenuAction::Copy, _) => self.copy(),
                     (_, Some(pane)) => self.paste_into(pane, ClipKind::Clipboard),
                     _ => {}
+                }
+            }
+            MenuAction::EditProfile | MenuAction::NewProfile => {
+                let pane = match &self.modal {
+                    Modal::Menu {
+                        profiles: Some(p), ..
+                    } => p.pane,
+                    _ => return,
+                };
+                match a {
+                    MenuAction::EditProfile => {
+                        self.set_modal(Modal::None);
+                        self.edit_profile(pane);
+                    }
+                    _ => self.set_modal(Modal::Prompt {
+                        purpose: PromptPurpose::NewProfile { pane },
+                        field: TextField::new(""),
+                    }),
                 }
             }
             MenuAction::Disabled | MenuAction::Separator => {}
@@ -1247,7 +1297,7 @@ impl Window {
                 }
             }
             Modal::Prompt {
-                purpose: PromptPurpose::SaveSession,
+                purpose: PromptPurpose::SaveSession | PromptPurpose::NewProfile { .. },
                 ..
             } => {
                 let (w, h) = self.size_px();
@@ -1290,9 +1340,16 @@ impl Window {
                 paint_rename(field, text, &bm, stroke)
             }
             Modal::Prompt {
-                purpose: PromptPurpose::SaveSession,
+                purpose: PromptPurpose::SaveSession | PromptPurpose::NewProfile { .. },
                 field,
-            } => paint_save_prompt(field, w, h, &bm, stroke),
+            } => paint_titled_prompt(
+                prompt_title(&self.modal).unwrap_or_default(),
+                field,
+                w,
+                h,
+                &bm,
+                stroke,
+            ),
             Modal::Confirm(c) => paint_confirm(c, w, h, &bm, stroke),
         };
         self.draw_paint(&paint);
@@ -1636,7 +1693,7 @@ mod tests {
         ));
         assert!(inside(panel, title) && inside(panel, field));
         assert!(field.y >= title.y + title.h);
-        let p = paint_save_prompt(&TextField::new("demo"), 800, 600, &bm, 1);
+        let p = paint_titled_prompt(SAVE_PROMPT_TITLE, &TextField::new("demo"), 800, 600, &bm, 1);
         assert_eq!(colored(&p, PANEL_BORDER), [panel]);
         let texts: Vec<&str> = p.labels.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(texts, ["Save session", "demo"]);
@@ -1804,14 +1861,39 @@ mod tests {
         let long = "n".repeat(80);
         let stems: Vec<_> = (0..30).map(|i| (format!("p{i}"), long.clone())).collect();
         let (rows, cols) = profile_menu_limits(button, win_w, win_h, &bm);
-        let items = profile_menu_items(&stems, "p0", rows, cols);
+        let items = profile_menu(&stems, "p0", true, rows, cols);
         let probe = Menu::new(items, 0, 0);
         let r = probe.rect(&bm);
         assert!(r.w <= win_w, "{r:?}");
         assert!(r.h <= win_h, "{r:?}");
         let (x, y) = profile_menu_origin(button, r.w, r.h, win_w, win_h);
         assert!(x >= 0 && x + r.w <= win_w && y >= 0 && y + r.h <= win_h);
-        assert!(probe.items.last().unwrap().label.contains("more"));
+        assert!(probe.items.iter().any(|i| i.label.contains("more")));
+        assert_eq!(probe.items.last().unwrap().action, MenuAction::NewProfile);
+    }
+
+    #[test]
+    fn prompt_titles() {
+        let title = |p: PromptPurpose| {
+            prompt_title(&Modal::Prompt {
+                purpose: p,
+                field: TextField::new(""),
+            })
+        };
+        assert_eq!(title(PromptPurpose::SaveSession), Some(SAVE_PROMPT_TITLE));
+        assert_eq!(
+            title(PromptPurpose::NewProfile { pane: 1 }),
+            Some(NEW_PROFILE_TITLE)
+        );
+        // The rename is edited in place over the tab: no titled panel.
+        assert_eq!(
+            title(PromptPurpose::RenameTab {
+                pane: 1,
+                original: None,
+                seed: String::new(),
+            }),
+            None
+        );
     }
 
     #[test]
@@ -1834,7 +1916,11 @@ mod tests {
             ("a".to_string(), "Alpha".to_string()),
             ("b".to_string(), "Beta".to_string()),
         ];
-        let m = Menu::new(profile_menu_items(&stems, "b", 99, 40), 400, 28);
+        let m = Menu::new(
+            crate::ui::menu::profile_menu_items(&stems, "b", 99, 40),
+            400,
+            28,
+        );
         let rows = m.item_rects(&bm);
         let p = paint_menu(&m, &bm, 1);
         let texts: Vec<_> = p

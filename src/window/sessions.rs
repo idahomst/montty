@@ -9,15 +9,19 @@ use winit::dpi::LogicalSize;
 use winit::monitor::MonitorHandle;
 
 use super::links::open_detached;
-use super::modal::{Modal, PromptPurpose, pane_running, profile_menu_limits, profile_menu_origin};
+use super::modal::{
+    Modal, PromptPurpose, pane_running, profile_menu_limits, profile_menu_origin, target_alive,
+};
 use super::tabs::Tab;
 use super::{PaneStyle, Window};
+use crate::config::profile::{DEFAULT_PROFILE_TOML, new_profile_file, with_name};
 use crate::layout::{PaneId, Shape, SplitTree};
 use crate::session::{
     LeafDoc, SessionDoc, TabDoc, last_file, list_sessions, read_session, session_file, to_json,
     write_atomic,
 };
 use crate::term::pane::{Pane, next_pane_id};
+use crate::ui::confirm::CloseTarget;
 use crate::ui::menu::{Menu, session_menu_items};
 use crate::ui::textfield::TextField;
 use crate::ui::toast::{Toast, ToastSource};
@@ -195,7 +199,7 @@ impl Window {
     }
 
     /// The config dir; None when montty runs without one (`$HOME` unset).
-    fn user_config_dir(&self) -> Option<&Path> {
+    pub(super) fn user_config_dir(&self) -> Option<&Path> {
         let dir = self.store.dir();
         (!dir.as_os_str().is_empty()).then_some(dir)
     }
@@ -478,11 +482,70 @@ impl Window {
             self.error_toast(&format!("{}: {e}", file.display()));
             return;
         }
+        self.open_in_editor(dir, &file);
+    }
+
+    /// `Edit profile "…"` in pane `pane`'s profile menu: the profile file it runs under, in
+    /// an editor like `Edit config`.
+    pub(super) fn edit_profile(&mut self, pane: PaneId) {
+        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
+            self.error_toast(NO_CONFIG_DIR);
+            return;
+        };
+        let file = profile_path(&dir, self.current_stem(pane));
+        match file.is_file() {
+            true => self.open_in_editor(dir, &file),
+            false => self.error_toast(&format!("{}: not found", file.display())),
+        }
+    }
+
+    /// Enter in the new profile prompt with `name`: `profiles/<name>.toml` is written as a
+    /// copy of the profile `pane` runs under (the default template when that has no file)
+    /// with `name` as its display name; the pane switches to it and it opens in an editor.
+    /// A bad or taken name, or a write error, keeps the prompt open and says why.
+    pub(super) fn commit_new_profile(&mut self, pane: PaneId, name: &str) {
+        let rel = match new_profile_file(name) {
+            Ok(rel) => rel,
+            Err(why) => {
+                self.error_toast(&format!("invalid profile name: {why}"));
+                return;
+            }
+        };
+        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
+            self.error_toast(NO_CONFIG_DIR);
+            return;
+        };
+        let source = profile_path(&dir, self.current_stem(pane));
+        let text = std::fs::read_to_string(source).unwrap_or_else(|_| DEFAULT_PROFILE_TOML.into());
+        let file = dir.join(&rel);
+        match write_new(&file, &with_name(&text, name)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                self.error_toast(&format!("profile '{name}' already exists"));
+                return;
+            }
+            Err(e) => {
+                self.error_toast(&format!("{}: {e}", rel.display()));
+                return;
+            }
+        }
+        self.set_modal(Modal::None);
+        // Loaded now rather than by the watcher, so the pane can switch to it.
+        self.reload_config(Instant::now());
+        if target_alive(&CloseTarget::Pane(pane), &self.tabs, &self.panes) {
+            self.set_pane_profile(pane, name);
+        }
+        self.open_in_editor(dir, &file);
+    }
+
+    /// `file` in a terminal editor (`$VISUAL`, `$EDITOR`, Debian's `editor`) in a new tab
+    /// starting in `dir`; without one, in the desktop's editor.
+    fn open_in_editor(&mut self, dir: PathBuf, file: &Path) {
         let visual = std::env::var("VISUAL").ok();
         let editor = std::env::var("EDITOR").ok();
         let path = std::env::var_os("PATH").unwrap_or_default();
         let candidates = [visual.as_deref(), editor.as_deref(), Some("editor")];
-        match editor_command(&candidates, &file, |p| on_path(p, &path)) {
+        match editor_command(&candidates, file, |p| on_path(p, &path)) {
             Some(command) => self.new_tab_with(Some(dir), Some(command)),
             None => open_detached(file.as_os_str()),
         }
@@ -495,6 +558,25 @@ impl Window {
             None => self.error_toast(NO_CONFIG_DIR),
         }
     }
+}
+
+/// Profile `stem`'s file in config folder `dir`.
+fn profile_path(dir: &Path, stem: &str) -> PathBuf {
+    dir.join("profiles").join(format!("{stem}.toml"))
+}
+
+/// Writes `contents` to `file`, which must not exist yet (not even as a dangling link):
+/// a new profile never replaces one.
+fn write_new(file: &Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file)?
+        .write_all(contents.as_bytes())
 }
 
 /// The saved window size, or, in each dimension that doesn't fit the monitor (logical

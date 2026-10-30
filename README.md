@@ -65,8 +65,9 @@ shell, background image.
 
 - **First run:** montty writes `profiles/default.toml` with every setting at its default and a comment on each. Change
   what you want and save; all panes using it restyle live.
-- **New profile:** copy it to another name, e.g. `profiles/work.toml`. The file name is the profile's id; `name = "Work"`
-  is what the menu shows. Every key is optional.
+- **New profile:** `New profile…` in a pane's profile menu (below) asks for a name and copies the pane's profile to
+  `profiles/<name>.toml`, or copy a file yourself, e.g. to `profiles/work.toml`. The file name is the profile's id;
+  `name = "Work"` is what the menu shows. Every key is optional.
 
   ```toml
   name = "Work"
@@ -77,7 +78,7 @@ shell, background image.
   ```
 
 - **Use it:** hover a pane and click the **Profile** button in its top-right overlay, then pick a profile; only that
-  pane changes and its shell keeps running. A split starts with the profile of the pane it came from.
+  pane changes and its shell keeps running. The same menu has `Edit profile "…"` for the pane's profile. A split starts with the profile of the pane it came from.
 - **Default:** new windows and tabs use `default_profile = "work"` from `config.toml`, or `montty --profile work`.
 
 ### Sessions
@@ -97,6 +98,16 @@ it opens; scrollback isn't saved.
 
 Other docs: [docs/design.md](docs/design.md) (how montty is built and why),
 [docs/bench.md](docs/bench.md) (performance measurements and the benchmark procedure).
+
+## Ideas under consideration
+
+Not built yet; reactions in GitHub issues help decide.
+
+- **`montty --config-check`:** check the config files on purpose (valid TOML, known settings, montty's own key
+  conflicts) and also warn about shortcuts the desktop takes before montty sees them, such as Cinnamon's screen
+  recording on `Ctrl+Alt+Shift+R` or moving windows with Alt+click. Linux has no common interface for asking which
+  shortcuts the desktop holds, and Wayland offers none at all, so each desktop (Cinnamon, GNOME, KDE, Xfce, ...)
+  would need its own reader, and some (tiling compositors) could not be checked.
 
 ## Why montty?
 

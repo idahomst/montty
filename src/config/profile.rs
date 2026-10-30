@@ -390,6 +390,57 @@ impl Profile {
 }
 
 /// Written to `profiles/default.toml` on first run.
+/// Longest new profile name, in characters.
+const MAX_NAME_CHARS: usize = 64;
+
+/// `profiles/<name>.toml` relative to the config folder for a new profile named `name`,
+/// or why the name can't be a file name (montty skips files starting with `.` or `#`).
+pub fn new_profile_file(name: &str) -> Result<PathBuf, String> {
+    let n = name.chars().count();
+    if n == 0 {
+        Err("the name is empty".into())
+    } else if n > MAX_NAME_CHARS {
+        Err(format!(
+            "the name is longer than {MAX_NAME_CHARS} characters"
+        ))
+    } else if name.contains('/') {
+        Err("the name can't contain '/'".into())
+    } else if name.chars().any(char::is_control) {
+        Err("the name can't contain control characters".into())
+    } else if name.starts_with(['.', '#']) {
+        Err("the name can't start with '.' or '#'".into())
+    } else {
+        Ok(Path::new("profiles").join(format!("{name}.toml")))
+    }
+}
+
+/// Profile file text `src` with its display name set to `name`: the top-level `name = …`
+/// line (before any table) replaced, or one added first.
+pub fn with_name(src: &str, name: &str) -> String {
+    let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
+    let line = format!("name = \"{escaped}\"");
+    let mut out = String::with_capacity(src.len() + line.len() + 1);
+    let (mut in_table, mut replaced) = (false, false);
+    for l in src.split_inclusive('\n') {
+        let t = l.trim_start();
+        in_table |= t.starts_with('[');
+        let is_name = t
+            .strip_prefix("name")
+            .is_some_and(|rest| rest.trim_start().starts_with('='));
+        if !in_table && !replaced && is_name {
+            out.push_str(&line);
+            out.push('\n');
+            replaced = true;
+        } else {
+            out.push_str(l);
+        }
+    }
+    if !replaced {
+        out.insert_str(0, &format!("{line}\n"));
+    }
+    out
+}
+
 pub const DEFAULT_PROFILE_TOML: &str = r##"# montty profile — edit and save; changes apply live. Reference: docs/config.md
 
 name = "Default"            # display name; empty uses the file name
@@ -439,6 +490,41 @@ mod tests {
     }
     fn rgb(r: u8, g: u8, b: u8) -> Rgb {
         Rgb { r, g, b }
+    }
+
+    #[test]
+    fn new_profile_names_are_checked() {
+        assert_eq!(
+            new_profile_file("Work"),
+            Ok(PathBuf::from("profiles/Work.toml"))
+        );
+        assert_eq!(
+            new_profile_file("my work"),
+            Ok(PathBuf::from("profiles/my work.toml"))
+        );
+        for bad in ["", "a/b", ".hidden", "#tmp", "tab\there", &"x".repeat(65)] {
+            assert!(new_profile_file(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn with_name_replaces_the_top_level_name() {
+        let src = "# comment\nname = \"Default\"   # display name\nfont_size = 11\n[colors]\nname = \"x\"\n";
+        assert_eq!(
+            with_name(src, "Work"),
+            "# comment\nname = \"Work\"\nfont_size = 11\n[colors]\nname = \"x\"\n"
+        );
+        // No name line: one goes first. Quotes and backslashes are escaped.
+        assert_eq!(
+            with_name("font_size = 11\n", r#"a "b" \c"#),
+            "name = \"a \\\"b\\\" \\\\c\"\nfont_size = 11\n"
+        );
+        // The result parses and carries the new name; the template keeps its other keys.
+        let p = parse(&with_name(DEFAULT_PROFILE_TOML, "Work")).unwrap();
+        assert_eq!(p.name, "Work");
+        assert_eq!(p.font_size, parse(DEFAULT_PROFILE_TOML).unwrap().font_size);
+        // `name` inside a table, or a key that only starts with "name", isn't the top-level name.
+        assert_eq!(with_name("names = 1\n", "W"), "name = \"W\"\nnames = 1\n");
     }
 
     #[test]

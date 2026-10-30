@@ -37,6 +37,10 @@ pub enum MenuAction {
     Paste,
     /// A thin line between groups of rows: never chosen, skipped by the arrow keys.
     Separator,
+    /// Opens the profile menu's pane's profile file in an editor.
+    EditProfile,
+    /// Asks for a name and creates a profile from the profile menu's pane's.
+    NewProfile,
     /// A row that only informs (`… N more`): never chosen, skipped by the arrow keys.
     Disabled,
 }
@@ -96,13 +100,99 @@ pub fn profile_menu_items(
     items
 }
 
+/// The profile menu's and session list's title rows.
+pub const PROFILES_TITLE: &str = "Profiles";
+pub const SESSIONS_TITLE: &str = "Sessions";
+
+/// `title` as a dim row and a separator, above `items`.
+fn titled(title: &str, items: Vec<MenuItem>) -> Vec<MenuItem> {
+    let row = |label: &str, action| MenuItem {
+        label: label.into(),
+        shortcut: None,
+        action,
+    };
+    let mut out = vec![
+        row(title, MenuAction::Disabled),
+        row("", MenuAction::Separator),
+    ];
+    out.extend(items);
+    out
+}
+
+/// Rows a title takes: its own and a separator (counted whole, so the menu still fits).
+const TITLE_ROWS: usize = 2;
+
+/// A pane's profile menu: the `PROFILES_TITLE`, the profiles (see `profile_menu_items`),
+/// and with `files` (there is a config folder) `Edit profile "<current>"` (when `current`
+/// is one of `stems`) and `New profile…` below a separator. At most `max_rows` rows of
+/// `max_cols` columns.
+pub fn profile_menu(
+    stems: &[(String, String)],
+    current: &str,
+    files: bool,
+    max_rows: usize,
+    max_cols: usize,
+) -> Vec<MenuItem> {
+    let edit = stems
+        .iter()
+        .find(|(stem, _)| stem == current)
+        .filter(|_| files)
+        .map(|(stem, name)| {
+            let frame = display_width("Edit profile \"\"");
+            let name = truncate(
+                &menu_name(name, stem),
+                max_cols.saturating_sub(frame).min(MAX_NAME_COLS),
+            );
+            MenuItem {
+                label: format!("Edit profile \"{name}\""),
+                shortcut: None,
+                action: MenuAction::EditProfile,
+            }
+        });
+    let mut tail: Vec<MenuItem> = edit.into_iter().collect();
+    if files {
+        tail.push(MenuItem {
+            label: "New profile…".into(),
+            shortcut: None,
+            action: MenuAction::NewProfile,
+        });
+    }
+    // The tail's separator and the title's together take less than a row.
+    let reserved = TITLE_ROWS + tail.len();
+    let mut items = match stems.is_empty() {
+        true => Vec::new(),
+        false => profile_menu_items(
+            stems,
+            current,
+            max_rows.saturating_sub(reserved).max(1),
+            max_cols,
+        ),
+    };
+    if !items.is_empty() && !tail.is_empty() {
+        items.push(MenuItem {
+            label: String::new(),
+            shortcut: None,
+            action: MenuAction::Separator,
+        });
+    }
+    items.extend(tail);
+    titled(PROFILES_TITLE, items)
+}
+
 /// Shown (disabled) when no session is saved.
 pub const NO_SESSIONS: &str = "no saved sessions";
 
-/// The session list's rows: each name (sanitized to one line, cut to `max_cols`
-/// columns) in `names` order; with more than `max_rows`, the first `max_rows - 1` show
-/// and a disabled `… N more` row ends the list. No names: one disabled row.
+/// The session list's rows below the `SESSIONS_TITLE`: each name (sanitized to one line,
+/// cut to `max_cols` columns) in `names` order; with more than fit in `max_rows`, the last
+/// row is a disabled `… N more`. No names: one disabled row.
 pub fn session_menu_items(names: &[String], max_rows: usize, max_cols: usize) -> Vec<MenuItem> {
+    titled(
+        SESSIONS_TITLE,
+        session_rows(names, max_rows.saturating_sub(TITLE_ROWS).max(1), max_cols),
+    )
+}
+
+fn session_rows(names: &[String], max_rows: usize, max_cols: usize) -> Vec<MenuItem> {
     if names.is_empty() {
         return vec![MenuItem {
             label: NO_SESSIONS.into(),
@@ -580,23 +670,97 @@ mod tests {
         );
     }
 
+    fn rows(items: &[MenuItem]) -> Vec<(&str, MenuAction)> {
+        items.iter().map(|i| (i.label.as_str(), i.action)).collect()
+    }
+
+    #[test]
+    fn profile_menu_has_a_title_and_edit_rows() {
+        let stems = [
+            ("default".to_string(), "Default".to_string()),
+            ("work".to_string(), "Work".to_string()),
+        ];
+        assert_eq!(
+            rows(&profile_menu(&stems, "work", true, 99, 40)),
+            [
+                (PROFILES_TITLE, MenuAction::Disabled),
+                ("", MenuAction::Separator),
+                ("  Default", MenuAction::SetProfile(0)),
+                ("✓ Work", MenuAction::SetProfile(1)),
+                ("", MenuAction::Separator),
+                ("Edit profile \"Work\"", MenuAction::EditProfile),
+                ("New profile…", MenuAction::NewProfile),
+            ]
+        );
+        // No config folder: nothing to edit or create.
+        assert_eq!(
+            rows(&profile_menu(&stems, "work", false, 99, 40)),
+            [
+                (PROFILES_TITLE, MenuAction::Disabled),
+                ("", MenuAction::Separator),
+                ("  Default", MenuAction::SetProfile(0)),
+                ("✓ Work", MenuAction::SetProfile(1)),
+            ]
+        );
+        // No profile files (built-in defaults only): only New profile.
+        assert_eq!(
+            rows(&profile_menu(&[], "default", true, 99, 40)),
+            [
+                (PROFILES_TITLE, MenuAction::Disabled),
+                ("", MenuAction::Separator),
+                ("New profile…", MenuAction::NewProfile),
+            ]
+        );
+    }
+
+    #[test]
+    fn profile_menu_edit_row_fits_and_the_list_shrinks_for_it() {
+        let long = "w".repeat(100);
+        let stems = named(&[&long, "b", "c", "d", "e", "f", "g", "h"]);
+        let items = profile_menu(&stems, "s0", true, 99, 30);
+        let edit = items
+            .iter()
+            .find(|i| i.action == MenuAction::EditProfile)
+            .unwrap();
+        assert!(edit.label.starts_with("Edit profile \"w"));
+        assert!(edit.label.ends_with("…\""), "{}", edit.label);
+        assert_eq!(display_width(&edit.label), 30);
+        // 8 rows: title, two separators (a row between them), Edit and New leave 4 for
+        // the list: 3 profiles and "… 5 more".
+        let items = profile_menu(&stems, "s0", true, 8, 40);
+        let listed = items
+            .iter()
+            .filter(|i| matches!(i.action, MenuAction::SetProfile(_)))
+            .count();
+        assert_eq!(listed, 3);
+        assert!(items.iter().any(|i| i.label.contains("5 more")));
+    }
+
     #[test]
     fn session_list_rows() {
         let names: Vec<String> = ["a", "b", "c"].map(String::from).into();
         let rows = |items: &[MenuItem]| -> Vec<(String, MenuAction)> {
             items.iter().map(|i| (i.label.clone(), i.action)).collect()
         };
+        let title = [
+            (SESSIONS_TITLE.to_string(), MenuAction::Disabled),
+            (String::new(), MenuAction::Separator),
+        ];
+        let titled = |items: Vec<MenuItem>| {
+            assert_eq!(rows(&items[..2]), title);
+            rows(&items[2..])
+        };
         assert_eq!(
-            rows(&session_menu_items(&names, 99, 40)),
+            titled(session_menu_items(&names, 99, 40)),
             [
                 ("a".to_string(), MenuAction::OpenSession(0)),
                 ("b".to_string(), MenuAction::OpenSession(1)),
                 ("c".to_string(), MenuAction::OpenSession(2)),
             ]
         );
-        // Bounded: the last row says how many are hidden.
+        // Bounded: the last row says how many are hidden; the title takes two rows.
         assert_eq!(
-            rows(&session_menu_items(&names, 2, 40)),
+            titled(session_menu_items(&names, 4, 40)),
             [
                 ("a".to_string(), MenuAction::OpenSession(0)),
                 ("… 2 more".to_string(), MenuAction::Disabled),
@@ -604,12 +768,12 @@ mod tests {
         );
         // None saved: one disabled row.
         assert_eq!(
-            rows(&session_menu_items(&[], 5, 40)),
+            titled(session_menu_items(&[], 5, 40)),
             [(NO_SESSIONS.to_string(), MenuAction::Disabled)]
         );
         // Long names are cut.
         let long = vec!["x".repeat(100)];
         let items = session_menu_items(&long, 5, 20);
-        assert_eq!(display_width(&items[0].label), 20);
+        assert_eq!(display_width(&items[2].label), 20);
     }
 }

@@ -93,8 +93,8 @@ Failures even if everything else works:
 - No per-pane title bars. Panes are separated by 1 px gray dividers with a drag zone a few pixels wider; the pointer
   changes over it. Double-clicking a divider equalizes the neighbouring panes.
 - The focused pane has a colored border; unfocused panes are slightly dimmed. Both are global settings.
-- A hover overlay in the top-right corner of the hovered pane holds a grip, `profile ▾` (switch profile live),
-  maximize/restore and close. It hides while the pointer is outside and while typing in that pane.
+- A hover overlay in the top-right corner of the hovered pane holds a grip, `profile ▾` (switch profile live;
+  the same menu edits the pane's profile file or creates a new profile from it), maximize/restore and close. It hides while the pointer is outside and while typing in that pane.
 - Maximizing makes one pane fill the tab; restoring returns the previous layout.
 - A new split inherits the focused pane's profile and working directory, and goes before or after the focused pane
   depending on the direction (left/up or right/down). Splitting is refused when the pane is too small.

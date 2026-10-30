@@ -453,8 +453,13 @@ isn't saved, and starts at zero in a new pane (a split pane doesn't inherit it).
 ## Choosing a profile for a pane
 
 - Hover a pane: its overlay shows a **Profile** button (the first of the buttons after the grip in the pane's top-right corner). It opens
-  a menu of all profiles; pick one and that pane switches at once. The shell keeps running; only the look changes.
-  A pane's profile isn't stored anywhere, so it is gone when the window closes.
+  a menu titled "Profiles" listing all profiles; pick one and that pane switches at once. The shell keeps running; only
+  the look changes. A pane's profile isn't stored anywhere, so it is gone when the window closes.
+- Below the list, `Edit profile "<name>"` opens the pane's profile file in an editor, like `Edit config`. `New
+  profile…` asks for a name, writes `profiles/<name>.toml` as a copy of the pane's profile with that display name
+  (from the default template when the pane's profile has no file), switches the pane to it and opens it in an
+  editor. A name that is taken, empty, contains `/` or starts with `.` or `#` is refused with a toast; an existing
+  file is never replaced.
 - A split pane starts with the profile of the pane that was split. A new tab, and the first pane, use the window's
   default profile.
 - The window's default profile is `default_profile` in `config.toml`, or `--profile` on the command line.
@@ -505,7 +510,8 @@ the target, so a crash never leaves half a file. The listing of saved sessions i
 
 ### Opening
 
-`open_session` (`Ctrl+Shift+O`) or `Open session ▸` in the ≡ menu lists the saved names, sorted (a disabled
+`open_session` (`Ctrl+Shift+O`) or `Open session ▸` in the ≡ menu lists the saved names under a "Sessions" title,
+sorted (a disabled
 `no saved sessions` row when there are none). Pick one:
 
 - If the window is *fresh*, the session replaces its content. Fresh means: exactly one tab with one pane, the pane's
