@@ -25,9 +25,9 @@ macOS and Windows are not supported yet.
 
 Download a package from the [latest release](https://github.com/idahomst/montty/releases/latest).
 
-- Debian / Ubuntu: `sudo apt install ./montty_0.2.0_amd64.deb`
-- Arch / CachyOS: `sudo pacman -U montty-0.2.0-1-x86_64.pkg.tar.zst`
-- Any Linux (x86_64): unpack `montty-0.2.0-x86_64-linux.tar.gz` and copy the files as described in
+- Debian / Ubuntu: `sudo apt install ./montty_0.2.1_amd64.deb`
+- Arch / CachyOS: `sudo pacman -U montty-0.2.1-1-x86_64.pkg.tar.zst`
+- Any Linux (x86_64): unpack `montty-0.2.1-x86_64-linux.tar.gz` and copy the files as described in
   [docs/install.md](docs/install.md).
 
 ### Build from source

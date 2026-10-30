@@ -7,20 +7,20 @@ Packages are attached to each [GitHub release](https://github.com/idahomst/montt
 **Debian, Ubuntu and derivatives**
 
 ```bash
-sudo apt install ./montty_0.2.0_amd64.deb
+sudo apt install ./montty_0.2.1_amd64.deb
 ```
 
 **Arch, CachyOS and derivatives**
 
 ```bash
-sudo pacman -U montty-0.2.0-1-x86_64.pkg.tar.zst
+sudo pacman -U montty-0.2.1-1-x86_64.pkg.tar.zst
 ```
 
 **Tarball (any Linux)**
 
 ```bash
-tar xzf montty-0.2.0-x86_64-linux.tar.gz
-cd montty-0.2.0
+tar xzf montty-0.2.1-x86_64-linux.tar.gz
+cd montty-0.2.1
 mkdir -p ~/.local/bin ~/.local/share/icons ~/.local/share/applications
 cp bin/montty ~/.local/bin/
 cp -r assets/icon/hicolor ~/.local/share/icons/
