@@ -210,7 +210,7 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - Shift+click extends the existing selection to the clicked cell; with no selection it starts one (in a program that
   uses the mouse, see below, it always starts a new one).
 - Releasing a selection copies it to the primary selection (select to primary). Middle click pastes the primary
-  selection into the pane under the pointer.
+  selection into the pane under the pointer and focuses it.
 - `copy` (`Ctrl+Shift+C`) puts the focused pane's selection into the clipboard; with no selection it does nothing.
   `paste` (`Ctrl+Shift+V`) pastes the clipboard and `paste_primary` (`Shift+Insert`) the primary selection into the
   focused pane. `select_all` (`Ctrl+Shift+A`) selects the whole scrollback and screen of the focused pane and also

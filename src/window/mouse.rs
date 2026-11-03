@@ -472,7 +472,7 @@ impl Window {
         }
     }
 
-    /// Middle press: paste PRIMARY into the pane under the pointer (focus stays).
+    /// Middle press: paste PRIMARY into the pane under the pointer, which takes the focus.
     /// (Mouse reporting, with Shift as the bypass, takes this press first.)
     fn middle_press(&mut self) {
         if self.mouse.drag.is_some() || self.mouse.select.drag.is_some() {

@@ -111,9 +111,14 @@ impl Window {
         self.paste_into(focused, kind);
     }
 
-    /// Paste `kind` into pane `id`: scrolled to the bottom, bracketed when the
-    /// program asked for it. Nothing happens when the clipboard is empty.
+    /// Paste `kind` into pane `id`: it takes the focus (a middle click or the menu's
+    /// Paste may target another pane than the one selected from), then the text goes in,
+    /// scrolled to the bottom, bracketed when the program asked for it. Nothing is
+    /// written when the clipboard is empty.
     pub(super) fn paste_into(&mut self, id: PaneId, kind: ClipKind) {
+        if id != self.tabs.active().focused {
+            self.set_focus(id);
+        }
         let Some(text) = self.clipboards.load(kind) else {
             return;
         };
