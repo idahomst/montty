@@ -446,7 +446,9 @@ pub const DEFAULT_PROFILE_TOML: &str = r##"# montty profile — edit and save; c
 name = "Default"            # display name; empty uses the file name
 font = "monospace"          # font family
 font_size = 11              # points, 4 to 200
-scheme = "tango"            # color scheme: a file in schemes/ or a built-in name
+scheme = "tango"            # color scheme: a built-in name or a file in schemes/
+# Built-in schemes: base16-twilight-dark, linux, material, monokai, orchis,
+#   solarized-dark, solarized-light, tango, yaru
 bold_is_bright = false      # draw bold text with bright colors
 opacity = 1.0               # window opacity, 0.0 to 1.0
 padding = 4                 # pixels around the terminal, 0 to 100
@@ -548,6 +550,30 @@ mod tests {
             }
         );
         assert!(DEFAULT_PROFILE_TOML.lines().count() <= 60);
+    }
+
+    #[test]
+    fn default_text_lists_the_builtin_schemes() {
+        let list: String = DEFAULT_PROFILE_TOML
+            .lines()
+            .skip_while(|l| !l.starts_with("# Built-in schemes:"))
+            .take_while(|l| l.starts_with('#') && !l.contains(" = "))
+            .map(|l| {
+                l.trim_start_matches("# Built-in schemes:")
+                    .trim_start_matches('#')
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let listed: Vec<&str> = list
+            .split(',')
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .collect();
+        let builtin: Vec<&str> = crate::config::scheme::builtin_schemes()
+            .into_iter()
+            .map(|(stem, _)| stem)
+            .collect();
+        assert_eq!(listed, builtin);
     }
 
     #[test]
