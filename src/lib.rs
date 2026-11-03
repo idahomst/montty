@@ -14,4 +14,5 @@ pub mod session;
 pub mod term;
 pub mod ui;
 pub mod window;
+pub mod window_menu;
 pub mod windows;

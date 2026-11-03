@@ -84,7 +84,10 @@ Failures even if everything else works:
   focus-border color along its bottom edge; nothing else about the tab changes.
 - Right: split right, split down, find, the ≡ menu, and the window buttons (minimize, maximize, close). With Shift held,
   the split buttons split left and up.
-- Dragging empty bar space moves the window; double-clicking it toggles maximize.
+- Dragging empty bar space moves the window; double-clicking it toggles maximize; right-clicking it opens the window
+  manager's window menu (always on top, workspaces...), as on a title bar. On X11 that is GTK's `_GTK_SHOW_WINDOW_MENU`
+  request (Muffin, Mutter, Metacity, KWin; skipped when the WM doesn't list it), on Wayland
+  `xdg_toplevel.show_window_menu`.
 - A tab's label is the focused pane's title (OSC 0/2) unless the tab was renamed (double-click it).
 - Icons are drawn by montty as antialiased strokes (2 px at scale 1, round caps, Lucide-like shapes on a 24-unit
   grid, straight edges snapped to whole pixels); there is no icon theme lookup and no SVG library.

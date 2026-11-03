@@ -48,6 +48,7 @@ Top-level modules (`src/`):
 - `decoder.rs`: background image decoding in a child process (`montty --decode-image <path> <w> <h>`); release builds
   abort on panic, so a decoder crash or hang must only kill the child.
 - `frame.rs`: refresh-capped frame scheduler. `device_events.rs`: turns off winit's raw device events.
+  `window_menu.rs`: asks the window manager for its window menu (right click on the empty bar).
 
 `src/window/` files (a `Window` is split across them by concern):
 

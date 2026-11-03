@@ -3,7 +3,7 @@
 
 use std::time::Instant;
 
-use winit::dpi::PhysicalSize;
+use winit::dpi::{PhysicalPosition, PhysicalSize};
 use winit::event::MouseButton;
 use winit::window::{CursorIcon, ResizeDirection};
 
@@ -94,12 +94,15 @@ pub(super) enum BarAction {
     ToggleMaximize,
     Close,
     DragWindow,
+    /// Right click on the empty bar: the window manager's window menu.
+    WindowMenu,
 }
 
 /// The action for a press of `button` on `target`; `double` when it completes a
 /// double-click; `shift` when Shift is held, which turns the split buttons into split left / up
 /// (not Alt: Cinnamon, Xfce and MATE move the window on Alt+click).
-/// Middle-click closes a tab; other buttons do nothing.
+/// Middle-click closes a tab; right-click on the empty bar opens the window
+/// manager's window menu, as on a title bar; other buttons do nothing.
 pub(super) fn press_action(
     target: Target,
     button: MouseButton,
@@ -109,6 +112,7 @@ pub(super) fn press_action(
     use BarAction as A;
     match (button, target) {
         (MouseButton::Middle, Target::Tab(i) | Target::TabClose(i)) => Some(A::CloseTab(i)),
+        (MouseButton::Right, Target::Drag) => Some(A::WindowMenu),
         (MouseButton::Left, _) => Some(match target {
             Target::Drag if double => A::ToggleMaximize,
             Target::Tab(i) if double => A::RenameTab(i),
@@ -510,6 +514,10 @@ impl Window {
                     eprintln!("montty: drag_window: {e}");
                 }
             }
+            BarAction::WindowMenu => {
+                let (x, y) = self.mouse.pos();
+                crate::window_menu::show(&self.window, PhysicalPosition::new(x, y));
+            }
         }
     }
 }
@@ -661,6 +669,15 @@ mod tests {
             press_action(Target::Tab(0), MouseButton::Right, false, false),
             None
         );
+    }
+
+    #[test]
+    fn right_click_on_empty_bar_opens_window_menu() {
+        let r = |t| press_action(t, MouseButton::Right, false, false);
+        assert_eq!(r(Target::Drag), Some(BarAction::WindowMenu));
+        assert_eq!(r(Target::Tab(0)), None);
+        assert_eq!(r(Target::Menu), None);
+        assert_eq!(r(Target::Close), None);
     }
 
     #[test]
