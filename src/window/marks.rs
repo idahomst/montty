@@ -3,7 +3,7 @@
 
 use super::Window;
 use super::attention::{Dot, Level};
-use super::draw::paint_link_label;
+use super::draw::paint_label_box;
 use super::links::label_box;
 use crate::layout::{PaneId, Rect};
 use crate::render::RectInstance;
@@ -199,7 +199,7 @@ impl Window {
         let text = display_text(&text);
         let bm = self.bar_metrics();
         if let Some(rect) = dot_label_rect(dot, display_width(&text), self.size_px(), &bm) {
-            let p = paint_link_label(rect, &text, &bm, self.chrome_stroke());
+            let p = paint_label_box(rect, &text, &bm, self.chrome_stroke());
             self.draw_paint(&p);
         }
     }

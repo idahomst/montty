@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key, NamedKey};
 
-use super::*;
 use crate::input::bindings::{Action, Bindings, KeyCombo};
 use crate::layout::{PaneId, Rect};
 use crate::ui::confirm::{CloseTarget, confirm_message, panes_message};
@@ -13,21 +12,6 @@ use crate::ui::menu::{MIN_COLS, Menu, MenuAction, MenuItem};
 use crate::ui::panel::InfoPanel;
 use crate::ui::topbar::BarMetrics;
 use crate::window::tabs::Tabs;
-
-/// The title of `modal` when it is a prompt shown as a titled panel.
-pub(in crate::window) fn prompt_title(modal: &Modal) -> Option<&'static str> {
-    match modal {
-        Modal::Prompt {
-            purpose: PromptPurpose::SaveSession,
-            ..
-        } => Some(SAVE_PROMPT_TITLE),
-        Modal::Prompt {
-            purpose: PromptPurpose::NewProfile { .. },
-            ..
-        } => Some(NEW_PROFILE_TITLE),
-        _ => None,
-    }
-}
 
 /// What a profile menu switches: `pane`, to one of `stems` (`Store::stems` when
 /// it opened, so a reload meanwhile can't shift the rows' indices).
@@ -377,6 +361,7 @@ pub(in crate::window) fn field_view(text: &str, cursor: usize, cols: usize) -> (
 
 #[cfg(test)]
 mod tests {
+    use super::super::*;
     use crate::ui::panel::PanelRow;
     use crate::window::bar::BarPaint;
 
@@ -728,12 +713,7 @@ mod tests {
 
     #[test]
     fn prompt_titles() {
-        let title = |p: PromptPurpose| {
-            prompt_title(&Modal::Prompt {
-                purpose: p,
-                field: TextField::new(""),
-            })
-        };
+        let title = |p: PromptPurpose| p.title();
         assert_eq!(title(PromptPurpose::SaveSession), Some(SAVE_PROMPT_TITLE));
         assert_eq!(
             title(PromptPurpose::NewProfile { pane: 1 }),

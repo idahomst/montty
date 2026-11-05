@@ -33,7 +33,7 @@ pub(super) const SAVE_PROMPT_TITLE: &str = "Save session";
 /// The new profile prompt's title.
 pub(super) const NEW_PROFILE_TITLE: &str = "New profile";
 /// The titled prompts' width in columns.
-const SAVE_PROMPT_COLS: i32 = 40;
+const TITLED_PROMPT_COLS: i32 = 40;
 
 /// The open modal widget, if any. Opening one replaces the current one.
 pub(super) enum Modal {
@@ -80,6 +80,17 @@ pub(super) enum PromptPurpose {
     /// The name of a new profile copied from `pane`'s, which then switches to it: a
     /// titled panel like `SaveSession`.
     NewProfile { pane: PaneId },
+}
+
+impl PromptPurpose {
+    /// The title of a prompt shown as a titled panel; None for the in-place rename.
+    pub(super) fn title(&self) -> Option<&'static str> {
+        match self {
+            PromptPurpose::SaveSession => Some(SAVE_PROMPT_TITLE),
+            PromptPurpose::NewProfile { .. } => Some(NEW_PROFILE_TITLE),
+            PromptPurpose::RenameTab { .. } => None,
+        }
+    }
 }
 
 impl Window {
@@ -605,7 +616,7 @@ impl Window {
                 ..
             } => {
                 let (w, h) = self.size_px();
-                let (panel, ..) = save_prompt_layout(w, h, &bm, self.chrome_stroke());
+                let (panel, ..) = titled_prompt_layout(w, h, &bm, self.chrome_stroke());
                 if !panel.contains(x, y) {
                     self.set_modal(Modal::None);
                 }
@@ -642,10 +653,10 @@ impl Window {
                 paint_rename(field, text, &bm, stroke)
             }
             Modal::Prompt {
-                purpose: PromptPurpose::SaveSession | PromptPurpose::NewProfile { .. },
+                purpose: purpose @ (PromptPurpose::SaveSession | PromptPurpose::NewProfile { .. }),
                 field,
             } => paint_titled_prompt(
-                prompt_title(&self.modal).unwrap_or_default(),
+                purpose.title().unwrap_or_default(),
                 field,
                 w,
                 h,

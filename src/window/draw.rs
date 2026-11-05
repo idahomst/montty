@@ -264,7 +264,7 @@ impl Window {
             };
             let text = size_text(size.num_cols, size.num_lines);
             if let Some(rect) = size_label_rect(pane, display_width(&text), &bm) {
-                self.draw_paint(&paint_link_label(rect, &text, &bm, stroke));
+                self.draw_paint(&paint_label_box(rect, &text, &bm, stroke));
             }
         }
     }
@@ -326,7 +326,7 @@ impl Window {
         let Some(rect) = label_rect(first, last, pane, cols, &bm) else {
             return;
         };
-        let p = paint_link_label(rect, &text, &bm, self.chrome_stroke());
+        let p = paint_label_box(rect, &text, &bm, self.chrome_stroke());
         self.draw_paint(&p);
     }
 
@@ -389,7 +389,7 @@ pub(super) fn paint_toast(
 
 /// The link address label in `rect`: an overlay-style box holding `text` in TEXT, cut
 /// with an ellipsis when the box is narrower.
-pub(super) fn paint_link_label(rect: Rect, text: &str, bm: &BarMetrics, stroke: i32) -> BarPaint {
+pub(super) fn paint_label_box(rect: Rect, text: &str, bm: &BarMetrics, stroke: i32) -> BarPaint {
     let mut out = BarPaint::default();
     if rect.w <= 2 * stroke || rect.h <= 2 * stroke {
         return out;
@@ -758,7 +758,7 @@ mod tests {
             w: 100,
             h: 28,
         };
-        let p = paint_link_label(r, "https://a.b", &bm, 1);
+        let p = paint_label_box(r, "https://a.b", &bm, 1);
         assert_eq!(with(&p.under, theme::OVERLAY_BORDER), vec![r]);
         assert_eq!(with(&p.under, theme::OVERLAY_BG), vec![r.inset(1)]);
         let l = &p.labels[0];
@@ -767,7 +767,7 @@ mod tests {
             ("https://a.b", theme::to_rgb(theme::TEXT), 16, 26)
         );
         // 11 columns of text room: cut with an ellipsis.
-        let p = paint_link_label(r, "https://example.com/long", &bm, 1);
+        let p = paint_label_box(r, "https://example.com/long", &bm, 1);
         assert_eq!(p.labels[0].text, "https://ex…");
     }
 

@@ -254,14 +254,14 @@ pub(in crate::window) fn paint_rename(
 
 /// The save prompt in a `win_w` × `win_h` window: the panel centered, then the title's
 /// text rect and the field's text rect (as `paint_rename` takes it) inside it.
-pub(in crate::window) fn save_prompt_layout(
+pub(in crate::window) fn titled_prompt_layout(
     win_w: i32,
     win_h: i32,
     bm: &BarMetrics,
     stroke: i32,
 ) -> (Rect, Rect, Rect) {
     let o = (bm.pad / 2).max(stroke);
-    let w = (SAVE_PROMPT_COLS * bm.cell_w + 2 * bm.pad)
+    let w = (TITLED_PROMPT_COLS * bm.cell_w + 2 * bm.pad)
         .min(win_w * 9 / 10)
         .max(0);
     let h = 3 * bm.pad + 2 * o + 2 * bm.cell_h + bm.pad;
@@ -296,7 +296,7 @@ pub(in crate::window) fn paint_titled_prompt(
     bm: &BarMetrics,
     stroke: i32,
 ) -> BarPaint {
-    let (panel, title, text) = save_prompt_layout(win_w, win_h, bm, stroke);
+    let (panel, title, text) = titled_prompt_layout(win_w, win_h, bm, stroke);
     let mut out = BarPaint::default();
     out.under
         .extend(framed(panel, stroke, theme::PANEL_BG, theme::PANEL_BORDER));
@@ -308,10 +308,7 @@ pub(in crate::window) fn paint_titled_prompt(
         color: theme::to_rgb(theme::TEXT),
         clip: title,
     });
-    let f = paint_rename(field, text, bm, stroke);
-    out.under.extend(f.under);
-    out.labels.extend(f.labels);
-    out.icons.extend(f.icons);
+    out.append(paint_rename(field, text, bm, stroke));
     out
 }
 
@@ -399,7 +396,7 @@ mod tests {
     #[test]
     fn save_prompt_is_a_titled_field_inside_its_panel() {
         let bm = BarMetrics::test();
-        let (panel, title, field) = save_prompt_layout(800, 600, &bm, 1);
+        let (panel, title, field) = titled_prompt_layout(800, 600, &bm, 1);
         assert!(inside(
             Rect {
                 x: 0,

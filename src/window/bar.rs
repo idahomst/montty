@@ -192,6 +192,16 @@ pub(super) struct BarPaint {
     pub shapes: Vec<ShapeInstance>,
 }
 
+impl BarPaint {
+    /// Add `other`'s layers to this one's, each drawn after what is there.
+    pub fn append(&mut self, other: BarPaint) {
+        self.under.extend(other.under);
+        self.labels.extend(other.labels);
+        self.icons.extend(other.icons);
+        self.shapes.extend(other.shapes);
+    }
+}
+
 /// The bar's rects and labels for a window `width` px wide. The active tab has
 /// the terminal background; a hovered inactive tab or button gets the hover bg
 /// (the Close button its own red); a hovered tab ✕ highlights its box, not the tab. The
