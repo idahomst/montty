@@ -848,9 +848,15 @@ mod tests {
     #[test]
     fn bold_differs_and_emoji_is_color_and_fits() {
         let mut s = set(1.0);
+        let family = resolve_family("monospace", &s.db);
         let reg = s.rasterize('A', Style::Regular).unwrap();
         let bold = s.rasterize('A', Style::Bold).unwrap();
-        assert_ne!(reg.data, bold.data);
+        // A family without a bold face draws bold as regular (no synthetic bold).
+        if s.primary[Style::Bold.index()].is_some() {
+            assert_ne!(reg.data, bold.data, "{family:?}");
+        } else {
+            eprintln!("no bold face in {family:?}");
+        }
         if let Some(e) = s.rasterize('😀', Style::Regular) {
             assert!(e.color);
             assert!(e.height <= s.metrics().cell_height);
