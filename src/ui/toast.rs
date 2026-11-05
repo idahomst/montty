@@ -121,7 +121,7 @@ impl Toast {
         let h = bm.cell_h + 2 * bm.pad;
         Rect {
             x: (win_w - w) / 2,
-            y: win_h - 2 * bm.pad - h,
+            y: (win_h - 2 * bm.pad - h).max(0),
             w,
             h,
         }
@@ -266,9 +266,10 @@ mod tests {
         let r = t.rect(800, 600, &bm());
         assert_eq!((r.x, r.w), (40, 720));
         assert_eq!(r.y + r.h, 600 - 12);
-        // A tiny window never gets a negative size.
+        // A tiny window never gets a negative size, or a toast above its top edge.
         let r = t.rect(0, 0, &bm());
         assert!(r.w >= 0 && r.h >= 0);
+        assert_eq!(t.rect(800, 20, &bm()).y, 0);
     }
 
     #[test]
