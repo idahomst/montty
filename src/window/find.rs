@@ -26,6 +26,7 @@ use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 
 use crate::layout::PaneId;
 use crate::term::links::line_search_left_capped;
+use crate::term::pane::EventProxy;
 use crate::ui::findbar::FindBar;
 
 pub struct FindState {
@@ -352,25 +353,17 @@ impl Window {
     }
 
     fn find_step(&mut self, dir: Direction) {
-        let Some(f) = self.find.as_mut() else {
-            return;
-        };
-        let id = f.pane;
-        if let Some(pane) = self.panes.get(&id) {
-            let mut term = pane.term.lock();
-            let before = term.grid().display_offset();
-            f.search(&mut term, dir);
-            let moved = term.grid().display_offset() != before;
-            drop(term);
-            if moved {
-                self.mark_scrolled(id);
-            }
-            self.schedule();
-        }
+        self.with_find_term(|f, term| f.search(term, dir));
     }
 
     /// The query or the case flag changed: search again from the bottom.
     fn find_requery(&mut self) {
+        self.with_find_term(|f, term| f.query_changed(term));
+    }
+
+    /// Run `search` on the find state and its pane's terminal, then redraw (and show the
+    /// scrollbar when it scrolled). Nothing runs when the bar is closed or its pane is gone.
+    fn with_find_term(&mut self, search: impl FnOnce(&mut FindState, &mut Term<EventProxy>)) {
         let Some(f) = self.find.as_mut() else {
             return;
         };
@@ -378,7 +371,7 @@ impl Window {
         if let Some(pane) = self.panes.get(&id) {
             let mut term = pane.term.lock();
             let before = term.grid().display_offset();
-            f.query_changed(&mut term);
+            search(f, &mut term);
             let moved = term.grid().display_offset() != before;
             drop(term);
             if moved {
