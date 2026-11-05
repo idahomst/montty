@@ -1,4 +1,4 @@
-//! Saved sessions: the JSON file format (spec §9), session names and atomic writes.
+//! Saved sessions: the JSON file format, session names and atomic writes.
 //! Paths are relative to the config directory.
 
 use std::fs;

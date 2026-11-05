@@ -252,7 +252,6 @@ impl Renderer {
 
     /// Draw one row of text with its top-left cell at (`x`, `y`), over a transparent
     /// background, scissored to `clip`.
-    // The 8-argument signature is the plan's interface.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_text(
         &mut self,

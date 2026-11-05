@@ -389,7 +389,6 @@ impl Profile {
     }
 }
 
-/// Written to `profiles/default.toml` on first run.
 /// Longest new profile name, in characters.
 const MAX_NAME_CHARS: usize = 64;
 
@@ -438,6 +437,7 @@ pub fn with_name(src: &str, name: &str) -> String {
     }
 }
 
+/// Written to `profiles/default.toml` on first run.
 pub const DEFAULT_PROFILE_TOML: &str = r##"# montty profile — edit and save; changes apply live. Reference: docs/config.md
 
 name = "Default"            # display name; empty uses the file name

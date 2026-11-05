@@ -2282,7 +2282,7 @@ mod tests {
         let o = pane_options(&p, None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["top".into(), "-d1".into()]));
         assert!(o.runs_command);
-        // Plan 2 defaults: $SHELL, block cursor without blink, 10 000 lines.
+        // Defaults: $SHELL, block cursor without blink, 10 000 lines.
         let o = pane_options(&Profile::default(), None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["/bin/sh".into()]));
         assert_eq!(o.scrollback, 10_000);

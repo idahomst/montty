@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# montty benchmark procedure (spec section 5). See docs/bench.md for results.
+# montty benchmark procedure. Linux only (reads /proc). See docs/bench.md for results.
 #
 #   bench.sh gen
 #   bench.sh throughput <terminal-cmd...>

@@ -48,7 +48,6 @@ pub struct CursorStyle {
 /// Cells on the default background get bg alpha `default_bg_alpha` (0 when the pane's
 /// translucent bg rect already painted it); every other bg, and the block cursor's
 /// swapped cell, stays opaque.
-// The 8-argument signature is the plan's interface.
 #[allow(clippy::too_many_arguments)]
 pub fn build_instances(
     snap: &Snapshot,

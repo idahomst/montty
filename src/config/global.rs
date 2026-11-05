@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn global_defaults_match_plan2() {
+    fn defaults_parse_from_empty_file() {
         let c = GlobalConfig::parse("", p()).unwrap();
         assert_eq!(c, GlobalConfig::default());
         assert_eq!(

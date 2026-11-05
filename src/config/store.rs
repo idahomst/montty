@@ -215,7 +215,7 @@ impl Store {
         self.load_profiles(&mut errors);
         self.resolve(&mut errors);
         self.default = self.find_default();
-        // A `default_profile` naming no profile still falls back (spec), but not silently.
+        // A `default_profile` naming no profile still falls back (see `find_default`), but not silently.
         if let Some(line) = self.global.default_profile_line
             && !self.resolved.contains_key(&self.global.default_profile)
         {

@@ -6,7 +6,7 @@
 use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
-/// Records kept per pane (the spec's minimum); the least recently updated is evicted.
+/// Records kept per pane (the Program Status Protocol's minimum); the least recently updated is evicted.
 pub const MAX_RECORDS: usize = 64;
 
 const MAX_KEY: usize = 16;
