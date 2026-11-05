@@ -156,9 +156,9 @@ impl Window {
             return None;
         }
         let (x, y) = self.mouse.pos();
-        let bar = self.bar();
-        if y < bar.height {
-            return bar.tabs.iter().find_map(|t| {
+        // The bar's layout is built only over the bar: this runs on every pointer move.
+        if y < self.bar_metrics().height {
+            return self.bar().tabs.iter().find_map(|t| {
                 let r = t.dot_rect.filter(|r| grown(*r).contains(x, y))?;
                 Some((r, self.tab_dot_label(t.index)?.label))
             });

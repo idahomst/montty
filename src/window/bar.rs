@@ -302,6 +302,11 @@ impl Window {
     /// The bar's layout for the current width and tabs. A tab being renamed
     /// is sized for the field's text.
     pub(super) fn bar(&self) -> Bar {
+        self.bar_with(&self.tab_marks())
+    }
+
+    /// `bar()` for marks the caller already has.
+    fn bar_with(&self, marks: &[Option<Level>]) -> Bar {
         let mut labels = tab_labels(&self.tabs, |id| {
             self.panes.get(&id).and_then(|p| p.title.as_deref())
         });
@@ -314,7 +319,7 @@ impl Window {
             *label = editing_label(field.text());
         }
         let width = self.size.width.min(i32::MAX as u32) as i32;
-        let dots: Vec<bool> = self.tab_marks().iter().map(Option::is_some).collect();
+        let dots: Vec<bool> = marks.iter().map(Option::is_some).collect();
         layout(
             width,
             &self.bar_metrics(),
@@ -363,7 +368,8 @@ impl Window {
     /// Draw the bar. The hover is recomputed from the last pointer position
     /// first, so it is never stale after tabs or titles changed.
     pub(super) fn draw_bar(&mut self) {
-        let bar = self.bar();
+        let marks = self.tab_marks();
+        let bar = self.bar_with(&marks);
         self.hover = self.pointer_hover(&bar);
         let p = paint(
             &bar,
@@ -374,7 +380,7 @@ impl Window {
             self.icon_line(),
             underline_px(self.scale),
             ChromeColors::of(self.store.global()).border,
-            &self.tab_marks(),
+            &marks,
         );
         self.draw_paint(&p);
     }
