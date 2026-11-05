@@ -9,7 +9,7 @@ fn main() {
     if argv.first().map(String::as_str) == Some("--decode-image") {
         std::process::exit(montty::decoder::run_helper(&argv[1..]));
     }
-    let args = match cli::parse_args(std::env::args().skip(1)) {
+    let args = match cli::parse_args(argv) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("montty: {e}");
