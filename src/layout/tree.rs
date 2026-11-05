@@ -622,9 +622,11 @@ impl SplitTree {
             return false;
         }
         // Nearest ancestor (longest proper prefix) with the matching orientation.
+        // Nothing changes until the one set_divider below, which returns.
+        let all = self.dividers_all(area);
         for len in (0..path.len()).rev() {
             let id = DividerId(path[..len].to_vec());
-            let Some(div) = self.dividers_all(area).into_iter().find(|d| d.id == id) else {
+            let Some(div) = all.iter().find(|d| d.id == id) else {
                 continue;
             };
             if div.orientation != want {
