@@ -4,11 +4,11 @@
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
 
-use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::search::RegexSearch;
 use winit::window::CursorIcon;
 
 use super::Window;
+use super::mouse::grid_geom;
 use super::mouse::{divider_at, resize_icon};
 use crate::layout::{Orientation, PaneId, Rect};
 use crate::term::links::{Link, URL_REGEX, link_at};
@@ -39,15 +39,14 @@ impl Window {
         }
         let (x, y) = self.mouse.pos();
         let (id, rect) = self.pane_at(x, y)?;
-        let (point, _, _) = self.pane_point(id, rect, false)?;
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let term = self.panes.get(&id)?.term.lock();
+        let g = grid_geom(&font, rect, &*term);
         // The edge cell stands in for the padding and leftover strip: not a hit.
-        if !in_grid(content, cw, ch, term.columns(), term.screen_lines(), x, y) {
+        if !g.contains(x, y) {
             return None;
         }
+        let (point, _) = g.point_at(term.grid().display_offset(), x, y);
         let link = link_at(&term, &mut self.links.regex, point)?;
         Some((id, link))
     }
@@ -155,13 +154,6 @@ pub(super) fn pointer_icon(link: bool, divider: Option<Orientation>) -> CursorIc
     } else {
         divider.map_or(CursorIcon::Default, resize_icon)
     }
-}
-
-/// Whether (x, y) lies on the cells of a `cols` x `lines` grid at `content`.
-fn in_grid(content: Rect, cw: u32, ch: u32, cols: usize, lines: usize, x: i32, y: i32) -> bool {
-    let (dx, dy) = (i64::from(x - content.x), i64::from(y - content.y));
-    (0..cols as i64 * i64::from(cw)).contains(&dx)
-        && (0..lines as i64 * i64::from(ch)).contains(&dy)
 }
 
 /// Hand `arg` (a URI or a path) to the desktop's opener, detached: no stdio, reaped on a
@@ -302,22 +294,5 @@ mod tests {
             label_text(&link("https://a\x1b.b", "x")).as_deref(),
             Some("https://a.b")
         );
-    }
-
-    #[test]
-    fn padding_and_leftover_strip_are_not_on_a_cell() {
-        let content = Rect {
-            x: 4,
-            y: 34,
-            w: 100,
-            h: 100,
-        };
-        // 5 cols x 2 lines of 9x18 cells: x 4..49, y 34..70.
-        assert!(in_grid(content, 9, 18, 5, 2, 4, 34));
-        assert!(in_grid(content, 9, 18, 5, 2, 48, 69));
-        assert!(!in_grid(content, 9, 18, 5, 2, 3, 40));
-        assert!(!in_grid(content, 9, 18, 5, 2, 49, 40));
-        assert!(!in_grid(content, 9, 18, 5, 2, 10, 70));
-        assert!(!in_grid(content, 9, 18, 5, 2, 10, 33));
     }
 }

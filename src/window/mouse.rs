@@ -11,16 +11,16 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::window::CursorIcon;
 
-use super::Window;
 use super::bar::ClickTracker;
 use super::pane_drag::{DragEnd, PaneDrag, drag_threshold};
 use super::selection::SelectState;
+use super::{PaneFont, Window};
 use crate::clipboard::ClipKind;
 use crate::input::Mods;
 use crate::input::bindings::Action;
 use crate::input::mouse::{MouseButtonCode, MouseEventKind, report, reporting};
 use crate::layout::{Divider, DividerId, Orientation, PaneId, Rect};
-use crate::term::grid_point::point_at;
+use crate::term::grid_point::GridGeom;
 use crate::ui::edge_px;
 use crate::ui::overlay::{Overlay, OverlayTarget, overlay_hit, overlay_layout, overlay_visible};
 
@@ -133,6 +133,17 @@ fn along(o: Orientation, (x, y): (i32, i32)) -> i32 {
     match o {
         Orientation::Horizontal => x,
         Orientation::Vertical => y,
+    }
+}
+
+/// The grid of a pane at `rect` drawn with `font`, sized from its terminal's `grid`.
+pub(super) fn grid_geom(font: &PaneFont, rect: Rect, grid: &impl Dimensions) -> GridGeom {
+    GridGeom {
+        content: rect.inset(font.padding),
+        cell_w: font.metrics.cell_width,
+        cell_h: font.metrics.cell_height,
+        cols: grid.columns(),
+        lines: grid.screen_lines(),
     }
 }
 
@@ -413,13 +424,9 @@ impl Window {
     /// `id` at `rect`, clamped into the grid.
     fn screen_cell(&mut self, id: PaneId, rect: Rect) -> Option<(usize, usize)> {
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let (x, y) = self.mouse.pos;
-        let term = self.panes.get(&id)?.term.lock();
-        let (cols, lines) = (term.columns(), term.screen_lines());
-        drop(term);
-        let (p, _) = point_at(content, cw, ch, cols, lines, 0, x, y);
+        let g = grid_geom(&font, rect, &*self.panes.get(&id)?.term.lock());
+        let (p, _) = g.point_at(0, x, y);
         Some((p.column.0, p.line.0.max(0) as usize))
     }
 

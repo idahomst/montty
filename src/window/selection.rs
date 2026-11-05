@@ -10,10 +10,11 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::{Term, TermMode};
 
 use super::Window;
+use super::mouse::grid_geom;
 use crate::clipboard::ClipKind;
 use crate::input::paste::paste_bytes;
 use crate::layout::{PaneId, Rect};
-use crate::term::grid_point::{MultiClick, point_at};
+use crate::term::grid_point::MultiClick;
 
 /// A selection being dragged in `pane`.
 pub(super) struct SelectDrag {
@@ -149,19 +150,15 @@ impl Window {
         autoscroll: bool,
     ) -> Option<(Point, Side, bool)> {
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let (x, y) = self.mouse.pos();
         let mut term = self.panes.get(&id)?.term.lock();
-        let (cols, lines) = (term.columns(), term.screen_lines());
-        let bottom = content.y + (lines as u32 * ch) as i32;
+        let g = grid_geom(&font, rect, &*term);
         let mut scrolled = false;
-        if autoscroll && (y < content.y || y >= bottom) {
-            term.scroll_display(Scroll::Delta(if y < content.y { 1 } else { -1 }));
+        if autoscroll && (y < g.content.y || y >= g.bottom()) {
+            term.scroll_display(Scroll::Delta(if y < g.content.y { 1 } else { -1 }));
             scrolled = true;
         }
-        let offset = term.grid().display_offset();
-        let (p, side) = point_at(content, cw, ch, cols, lines, offset, x, y);
+        let (p, side) = g.point_at(term.grid().display_offset(), x, y);
         drop(term);
         if scrolled {
             self.mark_scrolled(id);
