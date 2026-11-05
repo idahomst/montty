@@ -15,7 +15,7 @@ use super::modal::{Modal, PromptPurpose, editing_label};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
 use crate::layout::{PaneId, Rect, px_i32};
-use crate::render::{RectInstance, ShapeInstance};
+use crate::render::{RectInstance, ShapeInstance, TextRun};
 use crate::term::colors::Rgb;
 use crate::ui::confirm::CloseTarget;
 use crate::ui::icons::{Icon, icon_shapes};
@@ -393,8 +393,14 @@ impl Window {
         if let Some(fonts) = self.fonts.by_key(self.ui_font) {
             for l in &p.labels {
                 let m = &self.ui_metrics;
-                self.renderer
-                    .draw_text(l.x, l.y, &l.text, l.color, l.clip, fonts, m);
+                let run = TextRun {
+                    x: l.x,
+                    y: l.y,
+                    text: &l.text,
+                    fg: l.color,
+                    clip: l.clip,
+                };
+                self.renderer.draw_text(&run, fonts, m);
             }
         }
         self.renderer.draw_rects(&p.icons);

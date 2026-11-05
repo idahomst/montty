@@ -234,6 +234,16 @@ pub struct ImageTexture {
 }
 
 /// Draws an `ImageTexture` into a rect with a uv range and an alpha.
+/// Where and how one image is drawn: `uv` range of the texture into `dest` at `alpha`;
+/// `repeat` wraps a uv beyond 0..1 (Tile).
+#[derive(Clone, Copy)]
+pub(crate) struct ImageQuad {
+    pub dest: Rect,
+    pub uv: [f32; 4],
+    pub alpha: f32,
+    pub repeat: bool,
+}
+
 pub(crate) struct ImagePipeline {
     program: glow::Program,
     vao: glow::VertexArray,
@@ -322,19 +332,20 @@ impl ImagePipeline {
         unsafe { gl.delete_texture(t.tex) };
     }
 
-    /// Draw `t`'s `uv` range into `dest` at `alpha`; `repeat` wraps a uv beyond 0..1 (Tile).
-    // One quad's uniforms; bundling them would only rename the argument list.
-    #[allow(clippy::too_many_arguments)]
+    /// Draw `t` as `quad` (see `ImageQuad`).
     pub(crate) fn draw(
         &self,
         gl: &glow::Context,
         proj: &[f32; 16],
         t: &ImageTexture,
-        dest: Rect,
-        uv: [f32; 4],
-        alpha: f32,
-        repeat: bool,
+        quad: &ImageQuad,
     ) {
+        let ImageQuad {
+            dest,
+            uv,
+            alpha,
+            repeat,
+        } = *quad;
         let wrap = if repeat {
             glow::REPEAT
         } else {

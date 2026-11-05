@@ -18,7 +18,7 @@ use crate::config::GlobalConfig;
 use crate::config::store::Resolved;
 use crate::layout::{Divider, PaneId, Rect};
 use crate::render::image;
-use crate::render::{RectInstance, ShapeInstance};
+use crate::render::{PaneDraw, RectInstance, ShapeInstance};
 use crate::term::colors::Rgb;
 use crate::term::snapshot::Highlights;
 use crate::ui::icons::{Icon, icon_shapes};
@@ -173,15 +173,14 @@ impl Window {
                 self.snapshot.cursor = None;
             }
         }
-        self.renderer.draw_pane(
-            rect,
-            rect.inset(font.padding),
-            &self.snapshot,
-            fonts,
-            &font.metrics,
+        let pane = PaneDraw {
+            clip: rect,
+            content: rect.inset(font.padding),
+            metrics: &font.metrics,
             focused,
             default_bg_alpha,
-        );
+        };
+        self.renderer.draw_pane(&pane, &self.snapshot, fonts);
         let last_scroll = self.scrolled.get(&id).copied();
         if scrollbar_visible(self.snapshot.display_offset, last_scroll, frame.began)
             && let Some(thumb) = scrollbar_thumb(

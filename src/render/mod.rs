@@ -14,8 +14,8 @@ use crate::layout::Rect;
 use crate::term::colors::Rgb;
 use crate::term::snapshot::Snapshot;
 use atlas::{AtlasTexture, GlyphAtlas};
-use cells::{CellInstance, CellPipeline, CellUniforms, CursorStyle};
-use image::{ImagePipeline, ImageTexture, Rgba8};
+use cells::{CellInstance, CellPipeline, CellUniforms, CursorStyle, PaneGeom, PaneStyle};
+use image::{ImagePipeline, ImageQuad, ImageTexture, Rgba8};
 pub use rects::RectInstance;
 use rects::RectPipeline;
 use shapes::ShapePipeline;
@@ -89,6 +89,30 @@ impl AtlasTexture for GlTexture<'_> {
             );
         }
     }
+}
+
+/// One pane to draw.
+#[derive(Clone, Copy)]
+pub struct PaneDraw<'a> {
+    /// The pane's rect: nothing is drawn outside it, so a cell larger than a tiny pane
+    /// cannot paint over its neighbours.
+    pub clip: Rect,
+    /// Where the cell grid starts (the pane's rect inside its padding).
+    pub content: Rect,
+    pub metrics: &'a Metrics,
+    pub focused: bool,
+    /// Bg alpha of default-bg cells (see `cells::PaneStyle`).
+    pub default_bg_alpha: u8,
+}
+
+/// One row of text with its top-left cell at (`x`, `y`), scissored to `clip`.
+#[derive(Clone, Copy)]
+pub struct TextRun<'a> {
+    pub x: i32,
+    pub y: i32,
+    pub text: &'a str,
+    pub fg: Rgb,
+    pub clip: Rect,
 }
 
 /// The atlas never grows past this side, whatever the GL allows.
@@ -219,35 +243,31 @@ impl Renderer {
         }
     }
 
-    /// Draw a pane's cells at `content`; nothing is drawn outside `clip` (the pane's
-    /// rect), so a cell larger than a tiny pane cannot paint over its neighbours.
-    /// Default-bg cells get bg alpha `default_bg_alpha` (see `cells::build_instances`).
-    // Per-pane inputs; bundling them would only rename the argument list.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_pane(
-        &mut self,
-        clip: Rect,
-        content: Rect,
-        snap: &Snapshot,
-        fonts: &mut FontSet,
-        m: &Metrics,
-        focused: bool,
-        default_bg_alpha: u8,
-    ) {
-        let cursor = CursorStyle {
+    /// Draw a pane's cells (see `PaneDraw`).
+    pub fn draw_pane(&mut self, pane: &PaneDraw, snap: &Snapshot, fonts: &mut FontSet) {
+        let PaneDraw {
+            clip,
+            content,
+            metrics: m,
             focused,
-            color: self.cursor_color,
+            default_bg_alpha,
+        } = *pane;
+        let geo = PaneGeom::new(content, m);
+        let style = PaneStyle {
+            cursor: CursorStyle {
+                focused,
+                color: self.cursor_color,
+            },
+            default_bg_alpha,
         };
         self.build_with_atlas(fonts, |atlas, cells, rects| {
             cells::build_instances(
                 snap,
-                content,
-                m,
-                cursor,
+                &geo,
+                style,
                 |ch, style| atlas.get(ch, style),
                 cells,
                 rects,
-                default_bg_alpha,
             );
         });
         let uniforms = CellUniforms {
@@ -267,19 +287,15 @@ impl Renderer {
         unsafe { self.gl.disable(glow::SCISSOR_TEST) };
     }
 
-    /// Draw one row of text with its top-left cell at (`x`, `y`), over a transparent
-    /// background, scissored to `clip`.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_text(
-        &mut self,
-        x: i32,
-        y: i32,
-        text: &str,
-        fg: Rgb,
-        clip: Rect,
-        fonts: &mut FontSet,
-        m: &Metrics,
-    ) {
+    /// Draw one row of text over a transparent background (see `TextRun`).
+    pub fn draw_text(&mut self, run: &TextRun, fonts: &mut FontSet, m: &Metrics) {
+        let TextRun {
+            x,
+            y,
+            text,
+            fg,
+            clip,
+        } = *run;
         let laid_out = crate::ui::text::layout_cells(text);
         self.build_with_atlas(fonts, |atlas, cells, _| {
             cells::text_instances(&laid_out, fg, |ch| atlas.get(ch, Style::Regular), cells);
@@ -332,9 +348,13 @@ impl Renderer {
         alpha: f32,
         repeat: bool,
     ) {
-        let proj = self.proj;
-        self.images
-            .draw(&self.gl, &proj, t, dest, uv, alpha, repeat);
+        let quad = ImageQuad {
+            dest,
+            uv,
+            alpha,
+            repeat,
+        };
+        self.images.draw(&self.gl, &self.proj, t, &quad);
     }
 
     /// Drop every cached glyph (font or scale changed).
