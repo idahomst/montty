@@ -7,4 +7,5 @@ stack is empty, so 4097 pushes of `ESC[>1u` from any pane aborted montty (releas
 on panic). Upstream fix: alacritty commit 542147067 ("Fix Kitty keyboard mode stack size limit").
 
 Remove this directory and the `[patch.crates-io]` entry in `Cargo.toml` once a release that
-contains the fix is on crates.io. Also dropped: `Cargo.lock`, `.cargo_vcs_info.json`, `Cargo.toml.orig` and `tests/` (46 MB of fixtures; the `[[test]]` entry is removed).
+contains the fix is on crates.io. Also dropped: `Cargo.lock`, `.cargo_vcs_info.json`, `Cargo.toml.orig`, `README.md`,
+`CHANGELOG.md` (and the `readme` key) and `tests/` (46 MB of fixtures; the `[[test]]` entry is removed).

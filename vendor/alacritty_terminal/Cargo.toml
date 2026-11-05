@@ -26,7 +26,6 @@ autotests = false
 autobenches = false
 description = "Library for writing terminal emulators"
 homepage = "https://alacritty.org"
-readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/alacritty/alacritty"
 resolver = "2"
