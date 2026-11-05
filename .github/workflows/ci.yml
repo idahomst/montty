@@ -35,3 +35,21 @@ jobs:
       # Tests need no display: the one that does (tests/device_events.rs) skips itself without $DISPLAY.
       - name: Test
         run: cargo test --locked
+
+  # macOS builds and tests, but montty does not run there yet (see README).
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked

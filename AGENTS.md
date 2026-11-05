@@ -5,8 +5,9 @@ Guide for AI agents working on montty (Claude Code reads it through `CLAUDE.md`)
 ## What montty is
 
 A tiling terminal emulator inspired by Tilix, in Rust: winit + glutin + glow (OpenGL 3.3 / GLES 3) for the window and
-drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS and
-Windows are not supported yet. Priority order: responsiveness > simplicity > features. Rust edition 2024.
+drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS builds
+and passes the tests (CI runs both), but is not a supported app yet; Windows is not supported. Priority order:
+responsiveness > simplicity > features. Rust edition 2024.
 
 ## Commands
 
@@ -45,9 +46,10 @@ Top-level modules (`src/`):
   action table (`bindings.rs`), mouse reporting, paste.
 - `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).
 - `config/`: `global.rs` (`config.toml`), `profile.rs`, `scheme.rs` (Tilix JSON, built-ins from `assets/schemes`),
-  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify watcher + debounce).
+  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify / FSEvents watcher + debounce).
 - `session.rs`: saved-session JSON format, names, atomic writes.
-- `clipboard.rs`: CLIPBOARD and PRIMARY (copypasta, X11 or Wayland, read with a timeout off the UI thread).
+- `clipboard.rs`: CLIPBOARD and PRIMARY (copypasta, X11 or Wayland, read with a timeout off the UI thread; on macOS
+  the pasteboard, with PRIMARY in memory).
 - `decoder.rs`: background image decoding in a child process (`montty --decode-image <path> <w> <h>`); release builds
   abort on panic, so a decoder crash or hang must only kill the child.
 - `frame.rs`: refresh-capped frame scheduler. `device_events.rs`: turns off winit's raw device events.
@@ -97,6 +99,10 @@ Key flows:
 - Keep logic pure and testable next to the code, with `#[cfg(test)]` tests; keep GL and window code thin. Integration
   tests are in `tests/`. Tests must never touch the real `~/.config/montty`: use a temp dir (`testutil::TempDir` in
   unit tests, `tests/common` in integration tests).
+- X11/Wayland-only code sits behind `#[cfg(not(target_os = "macos"))]` (and the macOS side behind
+  `cfg(target_os = "macos")`), kept next to the code it replaces; per-OS crate features are in `Cargo.toml`'s
+  target tables. Check both: `cargo clippy --all-targets --target x86_64-unknown-linux-gnu` type-checks Linux from a
+  Mac.
 - No new crates without a strong reason; the dependency tree is deliberately small and each direct dependency is
   commented in `Cargo.toml`. Prefer pure-Rust crates.
 - Performance gates in `docs/bench.md` (`cat` throughput, key latency, idle CPU 0 %, RSS, binary size) must not
