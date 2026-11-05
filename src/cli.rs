@@ -69,23 +69,38 @@ mod tests {
         assert!(parse_args(["--bogus".to_string()]).is_err());
     }
     #[test]
-    fn cli_profile_flag() {
+    fn profile_flag_sets_the_profile() {
         let a = parse_args(["--profile", "work"].map(String::from)).unwrap();
         assert_eq!(a.profile.as_deref(), Some("work"));
         assert_eq!(a.command, None);
+    }
+
+    #[test]
+    fn profile_flag_combines_with_e() {
         let a = parse_args(["--profile", "work", "-e", "htop"].map(String::from)).unwrap();
         assert_eq!(a.profile.as_deref(), Some("work"));
         assert_eq!(a.command.unwrap(), vec!["htop"]);
-        assert!(parse_args(["--profile".to_string()]).is_err());
-        // -e takes everything after it, --profile included.
+    }
+
+    #[test]
+    fn e_takes_everything_after_it_profile_included() {
         let a = parse_args(["-e", "echo", "--profile", "x"].map(String::from)).unwrap();
         assert_eq!(a.profile, None);
         assert_eq!(a.command.unwrap(), vec!["echo", "--profile", "x"]);
-        assert!(USAGE.contains("--profile"));
+    }
+
+    #[test]
+    fn profile_flag_needs_a_name() {
+        assert!(parse_args(["--profile".to_string()]).is_err());
         // A flag is not a profile name.
         let e = parse_args(["--profile", "-e", "htop"].map(String::from)).unwrap_err();
         assert_eq!(e, "--profile requires a profile name");
         assert!(parse_args(["--profile", "--help"].map(String::from)).is_err());
+    }
+
+    #[test]
+    fn usage_mentions_profile() {
+        assert!(USAGE.contains("--profile"));
     }
 
     #[test]
