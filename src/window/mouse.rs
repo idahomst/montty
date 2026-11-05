@@ -13,7 +13,6 @@ use winit::window::CursorIcon;
 
 use super::Window;
 use super::bar::ClickTracker;
-use super::links::pointer_icon;
 use super::pane_drag::{DragEnd, PaneDrag, drag_threshold};
 use super::selection::SelectState;
 use crate::clipboard::ClipKind;
@@ -137,6 +136,16 @@ fn along(o: Orientation, (x, y): (i32, i32)) -> i32 {
     }
 }
 
+/// The reportable buttons.
+fn button_code(button: MouseButton) -> Option<MouseButtonCode> {
+    match button {
+        MouseButton::Left => Some(MouseButtonCode::Left),
+        MouseButton::Middle => Some(MouseButtonCode::Middle),
+        MouseButton::Right => Some(MouseButtonCode::Right),
+        _ => None,
+    }
+}
+
 impl Window {
     pub(super) fn on_cursor_moved(&mut self, p: PhysicalPosition<f64>) {
         self.mouse.pos = (p.x.floor() as i32, p.y.floor() as i32);
@@ -176,11 +185,7 @@ impl Window {
         if self.modal_open() {
             self.modal_pointer_moved();
         } else if !self.bar_pointer_moved() {
-            let (x, y) = self.mouse.pos;
-            let divider =
-                divider_at(&self.tabs.active().tree.dividers(area), x, y).map(|d| d.orientation);
-            let hovered = self.links.hover.is_some();
-            self.set_cursor_icon(pointer_icon(hovered, divider));
+            self.set_pane_cursor();
         }
         self.refresh_overlay();
         self.update_mark_hover();
@@ -315,11 +320,8 @@ impl Window {
     /// focus the pane and report the press, so no selection or paste happens.
     /// A left press on a divider is left to the divider. True when consumed.
     fn report_press(&mut self, button: MouseButton) -> bool {
-        let code = match button {
-            MouseButton::Left => MouseButtonCode::Left,
-            MouseButton::Middle => MouseButtonCode::Middle,
-            MouseButton::Right => MouseButtonCode::Right,
-            _ => return false,
+        let Some(code) = button_code(button) else {
+            return false;
         };
         let (x, y) = self.mouse.pos;
         let Some((id, rect)) = self.pane_at(x, y) else {
@@ -348,11 +350,8 @@ impl Window {
     /// The release of the button whose press was reported goes to that pane,
     /// wherever the pointer is. True when consumed.
     fn report_release(&mut self, button: MouseButton) -> bool {
-        let code = match button {
-            MouseButton::Left => MouseButtonCode::Left,
-            MouseButton::Middle => MouseButtonCode::Middle,
-            MouseButton::Right => MouseButtonCode::Right,
-            _ => return false,
+        let Some(code) = button_code(button) else {
+            return false;
         };
         let Some(id) = self.mouse.held.release(code) else {
             return false;

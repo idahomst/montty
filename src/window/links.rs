@@ -52,6 +52,19 @@ impl Window {
         Some((id, link))
     }
 
+    /// The pointer shape over the panes (see `pointer_icon`).
+    pub(super) fn set_pane_cursor(&mut self) {
+        let link = self.links.hover.is_some();
+        let divider = if link {
+            None
+        } else {
+            let (x, y) = self.mouse.pos();
+            let dividers = self.tabs.active().tree.dividers(self.area());
+            divider_at(&dividers, x, y).map(|d| d.orientation)
+        };
+        self.set_cursor_icon(pointer_icon(link, divider));
+    }
+
     /// Recompute the hovered link: on pointer motion and when the modifiers change.
     /// Nothing is searched unless Ctrl is held.
     pub(super) fn update_link_hover(&mut self) {
@@ -65,14 +78,8 @@ impl Window {
         let changed = hover != self.links.hover;
         let had = self.links.hover.is_some();
         self.links.hover = hover;
-        if self.links.hover.is_some() {
-            self.set_cursor_icon(CursorIcon::Pointer);
-        } else if had {
-            let (x, y) = self.mouse.pos();
-            let area = self.area();
-            let divider =
-                divider_at(&self.tabs.active().tree.dividers(area), x, y).map(|d| d.orientation);
-            self.set_cursor_icon(pointer_icon(false, divider));
+        if self.links.hover.is_some() || had {
+            self.set_pane_cursor();
         }
         if changed {
             self.schedule();

@@ -206,14 +206,7 @@ impl Window {
         let Some(id) = self.mouse.select.drag.as_ref().map(|d| d.pane) else {
             return;
         };
-        let rect = self
-            .tabs
-            .active()
-            .tree
-            .layout(self.area())
-            .into_iter()
-            .find_map(|(p, r)| (p == id).then_some(r));
-        let point = rect.and_then(|r| self.pane_point(id, r, true));
+        let point = (self.pane_rect(id)).and_then(|r| self.pane_point(id, r, true));
         let Some((p, side, scrolled)) = point else {
             self.mouse.select.drag = None;
             return;
