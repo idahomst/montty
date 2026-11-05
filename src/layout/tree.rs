@@ -514,11 +514,10 @@ impl SplitTree {
     }
 
     pub fn dividers(&self, area: Rect) -> Vec<Divider> {
-        let mut out = Vec::new();
-        if self.maximized.is_none() {
-            collect_dividers(&self.root, area, self.min, &mut Vec::new(), &mut out);
+        if self.maximized.is_some() {
+            return Vec::new();
         }
-        out
+        self.dividers_all(area)
     }
 
     pub fn neighbor(&self, from: PaneId, dir: Direction, area: Rect) -> Option<PaneId> {
