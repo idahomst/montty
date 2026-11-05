@@ -163,102 +163,168 @@ fn friendly(src: &str, span: Option<std::ops::Range<usize>>, msg: &str) -> Strin
     }
 }
 
+/// Builds `ConfigError`s for one file and checks values against their ranges.
+struct Checker<'a> {
+    src: &'a str,
+    file: &'a Path,
+}
+
+impl Checker<'_> {
+    fn err(&self, byte: Option<usize>, msg: String) -> ConfigError {
+        ConfigError {
+            file: self.file.to_path_buf(),
+            line: byte.map(|b| line_of(self.src, b)),
+            msg,
+        }
+    }
+
+    fn range(&self, v: &Spanned<f64>, key: &str, lo: f64, hi: f64) -> Result<f32, ConfigError> {
+        let x = *v.get_ref();
+        if (lo..=hi).contains(&x) {
+            Ok(x as f32)
+        } else {
+            Err(self.err(
+                Some(v.span().start),
+                format!("{key} must be between {lo} and {hi}, got {x}"),
+            ))
+        }
+    }
+
+    fn int_range(&self, v: &Spanned<i64>, key: &str, hi: i64) -> Result<i64, ConfigError> {
+        let x = *v.get_ref();
+        if (0..=hi).contains(&x) {
+            Ok(x)
+        } else {
+            Err(self.err(
+                Some(v.span().start),
+                format!("{key} must be between 0 and {hi}, got {x}"),
+            ))
+        }
+    }
+
+    fn color(&self, v: &Spanned<String>, key: &str) -> Result<Rgb, ConfigError> {
+        parse_color(v.get_ref()).ok_or_else(|| {
+            self.err(
+                Some(v.span().start),
+                format!("{key}: invalid color {:?}", v.get_ref()),
+            )
+        })
+    }
+
+    fn parse_colors(&self, c: &RawColors) -> Result<ColorOverrides, ConfigError> {
+        let mut o = ColorOverrides::default();
+        for (field, key, slot) in [
+            (&c.foreground, "colors.foreground", &mut o.foreground),
+            (&c.background, "colors.background", &mut o.background),
+            (&c.cursor, "colors.cursor", &mut o.cursor),
+            (
+                &c.selection_foreground,
+                "colors.selection_foreground",
+                &mut o.selection_foreground,
+            ),
+            (
+                &c.selection_background,
+                "colors.selection_background",
+                &mut o.selection_background,
+            ),
+        ] {
+            if let Some(v) = field {
+                *slot = Some(self.color(v, key)?);
+            }
+        }
+        if let Some(list) = &c.palette {
+            let at = Some(list.span().start);
+            let list = list.get_ref();
+            if list.len() != 16 {
+                return Err(self.err(
+                    at,
+                    format!("colors.palette must have 16 entries, found {}", list.len()),
+                ));
+            }
+            let mut pal = [Rgb { r: 0, g: 0, b: 0 }; 16];
+            for (slot, s) in pal.iter_mut().zip(list) {
+                *slot = self.color(s, "colors.palette")?;
+            }
+            o.palette = Some(pal);
+        }
+        Ok(o)
+    }
+
+    fn parse_background_image(
+        &self,
+        img: &Spanned<RawImage>,
+        home: Option<&Path>,
+    ) -> Result<BackgroundImage, ConfigError> {
+        let at = Some(img.span().start);
+        let i = img.get_ref();
+        let path = i
+            .path
+            .as_ref()
+            .ok_or_else(|| self.err(at, "[background_image] needs a `path`".into()))?;
+        if path.get_ref().is_empty() {
+            return Err(self.err(
+                Some(path.span().start),
+                "background_image.path must not be empty".into(),
+            ));
+        }
+        let fit = match i
+            .fit
+            .as_ref()
+            .map(|f| (f.get_ref().as_str(), f.span().start))
+        {
+            None | Some(("fill", _)) => Fit::Fill,
+            Some(("stretch", _)) => Fit::Stretch,
+            Some(("center", _)) => Fit::Center,
+            Some(("tile", _)) => Fit::Tile,
+            Some((other, start)) => {
+                return Err(self.err(
+                    Some(start),
+                    format!(
+                        "fit must be \"stretch\", \"fill\", \"center\" or \"tile\", got {other:?}"
+                    ),
+                ));
+            }
+        };
+        let opacity = match &i.opacity {
+            Some(o) => self.range(o, "background_image.opacity", 0.0, 1.0)?,
+            None => 1.0,
+        };
+        Ok(BackgroundImage {
+            path: expand_home(path.get_ref(), home),
+            fit,
+            opacity,
+        })
+    }
+}
+
 impl Profile {
     /// Parse `src`; `file` (relative to the config dir) names it in errors. `home` expands `~`.
     pub fn parse(src: &str, file: &Path, home: Option<&Path>) -> Result<Profile, ConfigError> {
-        let err = |byte: Option<usize>, msg: String| ConfigError {
-            file: file.to_path_buf(),
-            line: byte.map(|b| line_of(src, b)),
-            msg,
-        };
+        let ck = Checker { src, file };
         let raw: Raw = toml::from_str(src).map_err(|e| {
             let msg = friendly(src, e.span(), e.message());
-            err(e.span().map(|s| s.start), msg)
+            ck.err(e.span().map(|s| s.start), msg)
         })?;
-        let range = |v: &Spanned<f64>, key: &str, lo: f64, hi: f64| -> Result<f32, ConfigError> {
-            let x = *v.get_ref();
-            if (lo..=hi).contains(&x) {
-                Ok(x as f32)
-            } else {
-                Err(err(
-                    Some(v.span().start),
-                    format!("{key} must be between {lo} and {hi}, got {x}"),
-                ))
-            }
-        };
-        let int_range = |v: &Spanned<i64>, key: &str, hi: i64| -> Result<i64, ConfigError> {
-            let x = *v.get_ref();
-            if (0..=hi).contains(&x) {
-                Ok(x)
-            } else {
-                Err(err(
-                    Some(v.span().start),
-                    format!("{key} must be between 0 and {hi}, got {x}"),
-                ))
-            }
-        };
-        let color = |v: &Spanned<String>, key: &str| -> Result<Rgb, ConfigError> {
-            parse_color(v.get_ref()).ok_or_else(|| {
-                err(
-                    Some(v.span().start),
-                    format!("{key}: invalid color {:?}", v.get_ref()),
-                )
-            })
-        };
 
         let mut p = Profile::default();
         p.name = raw.name.unwrap_or(p.name);
         p.font_family = raw.font.unwrap_or(p.font_family);
         if let Some(s) = &raw.font_size {
-            p.font_size = range(s, "font_size", 4.0, 200.0)?;
+            p.font_size = ck.range(s, "font_size", 4.0, 200.0)?;
         }
         p.scheme = raw.scheme.unwrap_or(p.scheme);
         if let Some(c) = &raw.colors {
-            let o = &mut p.colors;
-            for (field, key, slot) in [
-                (&c.foreground, "colors.foreground", &mut o.foreground),
-                (&c.background, "colors.background", &mut o.background),
-                (&c.cursor, "colors.cursor", &mut o.cursor),
-                (
-                    &c.selection_foreground,
-                    "colors.selection_foreground",
-                    &mut o.selection_foreground,
-                ),
-                (
-                    &c.selection_background,
-                    "colors.selection_background",
-                    &mut o.selection_background,
-                ),
-            ] {
-                if let Some(v) = field {
-                    *slot = Some(color(v, key)?);
-                }
-            }
-            if let Some(list) = &c.palette {
-                let at = Some(list.span().start);
-                let list = list.get_ref();
-                if list.len() != 16 {
-                    return Err(err(
-                        at,
-                        format!("colors.palette must have 16 entries, found {}", list.len()),
-                    ));
-                }
-                let mut pal = [Rgb { r: 0, g: 0, b: 0 }; 16];
-                for (slot, s) in pal.iter_mut().zip(list) {
-                    *slot = color(s, "colors.palette")?;
-                }
-                o.palette = Some(pal);
-            }
+            p.colors = ck.parse_colors(c)?;
         }
         p.bold_is_bright = raw.bold_is_bright.unwrap_or(p.bold_is_bright);
         if let Some(o) = &raw.opacity {
-            p.opacity = range(o, "opacity", 0.0, 1.0)?;
+            p.opacity = ck.range(o, "opacity", 0.0, 1.0)?;
         }
         if let Some(v) = &raw.padding {
-            p.padding = int_range(v, "padding", 100)? as i32;
+            p.padding = ck.int_range(v, "padding", 100)? as i32;
         }
         if let Some(v) = &raw.scrollback {
-            p.scrollback = int_range(v, "scrollback", 1_000_000)? as usize;
+            p.scrollback = ck.int_range(v, "scrollback", 1_000_000)? as usize;
         }
         if let Some(s) = &raw.cursor_shape {
             p.cursor_shape = match s.get_ref().as_str() {
@@ -266,7 +332,7 @@ impl Profile {
                 "beam" => CursorShapeCfg::Beam,
                 "underline" => CursorShapeCfg::Underline,
                 other => {
-                    return Err(err(
+                    return Err(ck.err(
                         Some(s.span().start),
                         format!(
                             "cursor_shape must be \"block\", \"beam\" or \"underline\", got {other:?}"
@@ -280,7 +346,7 @@ impl Profile {
         p.login_shell = raw.login_shell.unwrap_or(p.login_shell);
         if let Some(c) = raw.command {
             if c.get_ref().iter().any(|a| a.is_empty()) {
-                return Err(err(
+                return Err(ck.err(
                     Some(c.span().start),
                     "command: arguments must not be empty".into(),
                 ));
@@ -288,45 +354,7 @@ impl Profile {
             p.command = Some(c.into_inner());
         }
         if let Some(img) = &raw.background_image {
-            let at = Some(img.span().start);
-            let i = img.get_ref();
-            let path = i
-                .path
-                .as_ref()
-                .ok_or_else(|| err(at, "[background_image] needs a `path`".into()))?;
-            if path.get_ref().is_empty() {
-                return Err(err(
-                    Some(path.span().start),
-                    "background_image.path must not be empty".into(),
-                ));
-            }
-            let fit = match i
-                .fit
-                .as_ref()
-                .map(|f| (f.get_ref().as_str(), f.span().start))
-            {
-                None | Some(("fill", _)) => Fit::Fill,
-                Some(("stretch", _)) => Fit::Stretch,
-                Some(("center", _)) => Fit::Center,
-                Some(("tile", _)) => Fit::Tile,
-                Some((other, start)) => {
-                    return Err(err(
-                        Some(start),
-                        format!(
-                            "fit must be \"stretch\", \"fill\", \"center\" or \"tile\", got {other:?}"
-                        ),
-                    ));
-                }
-            };
-            let opacity = match &i.opacity {
-                Some(o) => range(o, "background_image.opacity", 0.0, 1.0)?,
-                None => 1.0,
-            };
-            p.background_image = Some(BackgroundImage {
-                path: expand_home(path.get_ref(), home),
-                fit,
-                opacity,
-            });
+            p.background_image = Some(ck.parse_background_image(img, home)?);
         }
         Ok(p)
     }
