@@ -704,6 +704,71 @@ mod tests {
         }
     }
 
+    /// A new plain variant must get a row in TABLE: this match stops compiling without it
+    /// (listing it here), and the assert finds a variant listed but missing from TABLE.
+    #[test]
+    fn every_plain_action_has_a_row() {
+        use Action::*;
+        let plain = [
+            SplitRight,
+            SplitDown,
+            SplitLeft,
+            SplitUp,
+            SplitAuto,
+            FocusUp,
+            FocusDown,
+            FocusLeft,
+            FocusRight,
+            NextPane,
+            PrevPane,
+            ResizeUp,
+            ResizeDown,
+            ResizeLeft,
+            ResizeRight,
+            MaximizePane,
+            ClosePane,
+            NewTab,
+            CloseTab,
+            NextTab,
+            PrevTab,
+            MoveTabLeft,
+            MoveTabRight,
+            SaveSession,
+            OpenSession,
+            NewWindow,
+            Copy,
+            Paste,
+            PastePrimary,
+            SelectAll,
+            Find,
+            FindNext,
+            FindPrev,
+            ScrollLineUp,
+            ScrollLineDown,
+            ScrollPageUp,
+            ScrollPageDown,
+            ZoomIn,
+            ZoomOut,
+            ZoomReset,
+            Fullscreen,
+            ShowSizes,
+        ];
+        for a in plain {
+            match a {
+                SplitRight | SplitDown | SplitLeft | SplitUp | SplitAuto | FocusUp | FocusDown
+                | FocusLeft | FocusRight | NextPane | PrevPane | ResizeUp | ResizeDown
+                | ResizeLeft | ResizeRight | MaximizePane | ClosePane | NewTab | CloseTab
+                | NextTab | PrevTab | MoveTabLeft | MoveTabRight | SaveSession | OpenSession
+                | NewWindow | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
+                | FindPrev | ScrollLineUp | ScrollLineDown | ScrollPageUp | ScrollPageDown
+                | ZoomIn | ZoomOut | ZoomReset | Fullscreen | ShowSizes => {}
+                FocusPane(_) | GoToTab(_) => unreachable!(),
+            }
+            assert!(TABLE.iter().any(|r| r.0 == a), "{a:?} has no row in TABLE");
+        }
+        assert_eq!(plain.len(), TABLE.len());
+    }
+
     /// Every action has a table row "| `name` | `combo`, `combo` |" in docs/config.md whose
     /// combos are the defaults, in the order the shortcuts list shows them.
     #[test]
