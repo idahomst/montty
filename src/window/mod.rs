@@ -655,11 +655,14 @@ impl Window {
                 lines as u32 * m.cell_height + 2 * padding + BarMetrics::new(&m, 1.0).height as u32,
             ));
         // The app id / WM_CLASS; both backends define `with_name`, so call them qualified.
-        let attrs =
-            winit::platform::x11::WindowAttributesExtX11::with_name(attrs, "montty", "montty");
-        let attrs = winit::platform::wayland::WindowAttributesExtWayland::with_name(
-            attrs, "montty", "montty",
-        );
+        #[cfg(not(target_os = "macos"))]
+        let attrs = {
+            let attrs =
+                winit::platform::x11::WindowAttributesExtX11::with_name(attrs, "montty", "montty");
+            winit::platform::wayland::WindowAttributesExtWayland::with_name(
+                attrs, "montty", "montty",
+            )
+        };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
         let watcher = dir.and_then(|d| {
             let (w, errs) = start_watcher(&d, window.id(), sink.clone());

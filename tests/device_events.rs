@@ -1,6 +1,7 @@
 //! An idle montty must not wake up for input aimed at other windows: winit's
 //! raw XInput2 device events (every mouse motion anywhere on screen) must not
 //! be selected on the X11 root window. Needs an X11 display; skipped without one.
+#![cfg(not(target_os = "macos"))]
 
 use std::os::raw::c_int;
 

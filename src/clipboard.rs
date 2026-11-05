@@ -1,7 +1,10 @@
-//! The system CLIPBOARD and PRIMARY selection (copypasta: X11 or Wayland).
+//! The system CLIPBOARD and PRIMARY selection (copypasta: X11 or Wayland; on macOS the
+//! pasteboard, with PRIMARY kept in memory).
 
 use copypasta::ClipboardProvider;
+#[cfg(not(target_os = "macos"))]
 use copypasta::wayland_clipboard;
+#[cfg(not(target_os = "macos"))]
 use copypasta::x11_clipboard::{Clipboard, Primary, X11ClipboardContext};
 use raw_window_handle::RawDisplayHandle;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -175,6 +178,7 @@ impl Clipboards for Threaded {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn x11() -> Result<System, Box<dyn std::error::Error + Send + Sync>> {
     Ok(System {
         clipboard: Box::new(X11ClipboardContext::<Clipboard>::new()?),
@@ -186,6 +190,7 @@ fn x11() -> Result<System, Box<dyn std::error::Error + Send + Sync>> {
 /// The clipboards of the window's display: Wayland's, else X11's. Both run on a
 /// worker thread: a hung selection owner would otherwise block the UI thread for
 /// copypasta's own timeout (3 s on X11).
+#[cfg(not(target_os = "macos"))]
 pub fn system_clipboards(display: RawDisplayHandle) -> Box<dyn Clipboards> {
     let system = if let RawDisplayHandle::Wayland(h) = display {
         // SAFETY: winit's display pointer stays valid while the window (which owns
@@ -209,6 +214,44 @@ pub fn system_clipboards(display: RawDisplayHandle) -> Box<dyn Clipboards> {
         }
     };
     Box::new(Threaded::spawn(Box::new(system), LOAD_TIMEOUT))
+}
+
+/// The macOS pasteboard. macOS has no PRIMARY selection, so montty keeps its own in
+/// memory: selecting still copies there and a middle click still pastes it. Not
+/// threaded: reading the pasteboard does not wait on another process.
+#[cfg(target_os = "macos")]
+pub fn system_clipboards(_display: RawDisplayHandle) -> Box<dyn Clipboards> {
+    match copypasta::ClipboardContext::new() {
+        Ok(clipboard) => Box::new(System {
+            clipboard: Box::new(clipboard),
+            primary: Box::new(MemProvider::default()),
+            reported: false,
+        }),
+        Err(e) => {
+            eprintln!("montty: clipboard: {e}");
+            Box::new(MemClipboards::default())
+        }
+    }
+}
+
+/// One in-memory selection behind copypasta's provider trait (macOS's PRIMARY).
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct MemProvider(Option<String>);
+
+#[cfg(target_os = "macos")]
+impl ClipboardProvider for MemProvider {
+    fn get_contents(&mut self) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        self.0.clone().ok_or_else(|| "empty".into())
+    }
+
+    fn set_contents(
+        &mut self,
+        text: String,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.0 = Some(text);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
