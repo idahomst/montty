@@ -175,15 +175,27 @@ fn face_data(db: &fontdb::Database, id: fontdb::ID) -> Option<(Data, u32)> {
 #[derive(Default)]
 struct Coverage(Vec<(u32, u32)>);
 
+/// The color emoji font: Noto on Linux, Apple's on macOS.
+fn is_color_emoji_face(f: &fontdb::FaceInfo) -> bool {
+    f.families
+        .iter()
+        .any(|(n, _)| n == "Noto Color Emoji" || n == "Apple Color Emoji")
+}
+
 impl Coverage {
-    /// Empty when the face can't be read.
-    fn of(db: &fontdb::Database, id: fontdb::ID) -> Coverage {
+    /// Empty when the face can't be read, or has nothing `rasterize` can draw: macOS
+    /// ships bitmap-only faces (Apple `bdat`, e.g. "GB18030 Bitmap") that map CJK.
+    fn of(db: &fontdb::Database, id: fontdb::ID, ctx: &mut ScaleContext) -> Coverage {
         let Some((data, index)) = face_data(db, id) else {
             return Coverage::default();
         };
         let Some(font) = FontRef::from_index((*data).as_ref(), index as usize) else {
             return Coverage::default();
         };
+        let scaler = ctx.builder(font).build();
+        if !(scaler.has_outlines() || scaler.has_color_outlines() || scaler.has_color_bitmaps()) {
+            return Coverage::default();
+        }
         let mut cps = Vec::new();
         font.charmap().enumerate(|cp, glyph| {
             if glyph != 0 {
@@ -225,9 +237,7 @@ impl Face {
         let (data, index) = face_data(db, id)?;
         let font = FontRef::from_index((*data).as_ref(), index as usize)?;
         let (offset, key) = (font.offset, font.key);
-        let is_color_emoji = db
-            .face(id)
-            .is_some_and(|f| f.families.iter().any(|(n, _)| n == "Noto Color Emoji"));
+        let is_color_emoji = db.face(id).is_some_and(is_color_emoji_face);
         Some(Face {
             is_color_emoji,
             data,
@@ -394,13 +404,13 @@ impl FontSet {
     fn scan_db(&mut self, ch: char) -> Option<fontdb::ID> {
         self.db_scans += 1;
         let emoji = is_emoji_cp(ch);
-        let db = &self.db;
+        let (db, ctx) = (&self.db, &mut self.ctx);
         let coverage = self
             .coverage
-            .get_or_insert_with(|| db.faces().map(|f| Coverage::of(db, f.id)).collect());
+            .get_or_insert_with(|| db.faces().map(|f| Coverage::of(db, f.id, ctx)).collect());
         let mut best: Option<(u32, fontdb::ID)> = None;
         for (f, cov) in db.faces().zip(coverage.iter()) {
-            let is_emoji_face = f.families.iter().any(|(n, _)| n == "Noto Color Emoji");
+            let is_emoji_face = is_color_emoji_face(f);
             if !cov.contains(ch) {
                 continue;
             }
