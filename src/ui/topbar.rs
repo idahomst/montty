@@ -74,6 +74,40 @@ pub struct Bar {
     pub tabs: Vec<TabText>,
 }
 
+/// (index, width) of each tab that fits in `available` px, in order. `naturals` are the
+/// preferred widths. Tabs share the room when they can, shrink to the minimum, then drop off
+/// the end; the active tab always stays visible.
+fn visible_tabs(
+    bm: &BarMetrics,
+    naturals: &[i32],
+    available: i32,
+    active: usize,
+) -> Vec<(usize, i32)> {
+    let n = naturals.len();
+    let min_w = MIN_COLS as i32 * bm.cell_w + 3 * bm.pad + bm.cell_h;
+    let mut visible: Vec<(usize, i32)> = Vec::new();
+    // The active tab is always shown: below one full minimum tab it takes all the
+    // room (label truncated), as long as one column of label still fits.
+    let squeeze_w = 3 * bm.pad + bm.cell_h + bm.cell_w;
+    if n > 0 && active < n && available < min_w && available >= squeeze_w {
+        visible.push((active, available));
+    } else if n > 0 && available >= min_w {
+        if naturals.iter().sum::<i32>() <= available {
+            visible.extend(naturals.iter().copied().enumerate());
+        } else if n as i32 * min_w <= available {
+            let w = (available / n as i32).max(min_w);
+            visible.extend((0..n).map(|i| (i, w)));
+        } else {
+            let k = (available / min_w) as usize;
+            visible.extend((0..k).map(|i| (i, min_w)));
+            if active < n && active >= k {
+                visible[k - 1].0 = active;
+            }
+        }
+    }
+    visible
+}
+
 pub fn layout(width: i32, bm: &BarMetrics, labels: &[String], active: usize, dots: &[bool]) -> Bar {
     let h = bm.height;
     let mut items = Vec::new();
@@ -111,7 +145,6 @@ pub fn layout(width: i32, bm: &BarMetrics, labels: &[String], active: usize, dot
     }
 
     let available = cluster_left - h; // room for tabs once the NewTab button is reserved
-    let min_w = MIN_COLS as i32 * bm.cell_w + 3 * bm.pad + bm.cell_h;
     let naturals: Vec<i32> = labels
         .iter()
         .enumerate()
@@ -125,29 +158,7 @@ pub fn layout(width: i32, bm: &BarMetrics, labels: &[String], active: usize, dot
             cols * bm.cell_w + 3 * bm.pad + bm.cell_h + dot
         })
         .collect();
-    let n = labels.len();
-
-    // (index, width) of each visible tab, in order.
-    let mut visible: Vec<(usize, i32)> = Vec::new();
-    // The active tab is always shown: below one full minimum tab it takes all the
-    // room (label truncated), as long as one column of label still fits.
-    let squeeze_w = 3 * bm.pad + bm.cell_h + bm.cell_w;
-    if n > 0 && active < n && available < min_w && available >= squeeze_w {
-        visible.push((active, available));
-    } else if n > 0 && available >= min_w {
-        if naturals.iter().sum::<i32>() <= available {
-            visible.extend(naturals.iter().copied().enumerate());
-        } else if n as i32 * min_w <= available {
-            let w = (available / n as i32).max(min_w);
-            visible.extend((0..n).map(|i| (i, w)));
-        } else {
-            let k = (available / min_w) as usize;
-            visible.extend((0..k).map(|i| (i, min_w)));
-            if active < n && active >= k {
-                visible[k - 1].0 = active;
-            }
-        }
-    }
+    let visible = visible_tabs(bm, &naturals, available, active);
 
     let mut tx = 0;
     for &(index, w) in &visible {
@@ -270,6 +281,34 @@ mod tests {
             cell_w: 8,
             cell_h: 16,
         }
+    }
+
+    // With bm(): minimum tab width 82, squeeze threshold 42.
+    #[test]
+    fn visible_tabs_natural_widths_when_all_fit() {
+        let v = visible_tabs(&bm(), &[100, 120, 90], 400, 1);
+        assert_eq!(v, vec![(0, 100), (1, 120), (2, 90)]);
+    }
+
+    #[test]
+    fn visible_tabs_share_room_down_to_the_minimum() {
+        let v = visible_tabs(&bm(), &[200, 200, 200], 300, 0);
+        assert_eq!(v, vec![(0, 100), (1, 100), (2, 100)]);
+    }
+
+    #[test]
+    fn visible_tabs_overflow_keeps_the_active_tab() {
+        // Room for two minimum tabs of five: a far active tab replaces the last visible one.
+        let nat = [100; 5];
+        assert_eq!(visible_tabs(&bm(), &nat, 170, 0), vec![(0, 82), (1, 82)]);
+        assert_eq!(visible_tabs(&bm(), &nat, 170, 4), vec![(0, 82), (4, 82)]);
+    }
+
+    #[test]
+    fn visible_tabs_squeezes_only_the_active_tab() {
+        assert_eq!(visible_tabs(&bm(), &[100, 100], 60, 1), vec![(1, 60)]);
+        assert!(visible_tabs(&bm(), &[100, 100], 41, 1).is_empty());
+        assert!(visible_tabs(&bm(), &[], 400, 0).is_empty());
     }
 
     fn rect_of(bar: &Bar, t: Target) -> Rect {
