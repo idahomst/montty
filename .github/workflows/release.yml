@@ -21,13 +21,22 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - uses: Swatinem/rust-cache@v2
+
+      # Cargo.toml and the PKGBUILD must already carry the tag's version: otherwise the
+      # packages would be named for the tag while the binary reports the old version.
       - name: Version
         id: version
         run: |
+          cargo_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          pkgver=$(sed -n 's/^pkgver=//p' packaging/arch/PKGBUILD)
+          version=$cargo_version
           if [ "${GITHUB_REF_TYPE}" = tag ]; then
             version=${GITHUB_REF_NAME#v}
-          else
-            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+          fi
+          if [ "$cargo_version" != "$version" ] || [ "$pkgver" != "$version" ]; then
+            echo "::error::version mismatch: tag/version $version, Cargo.toml $cargo_version, PKGBUILD $pkgver"
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
@@ -37,9 +46,6 @@ jobs:
 
       - name: Build
         run: cargo build --release --locked
-
-      - name: Strip
-        run: strip target/release/montty
 
       - name: Debian package
         run: packaging/deb/build-deb.sh "${{ steps.version.outputs.version }}" target/release/montty dist
@@ -100,8 +106,6 @@ jobs:
           # makepkg refuses to run as root.
           useradd -m builder
           cp -r packaging/arch /home/builder/build
-          # The tag decides the version; keep the PKGBUILD in step with it.
-          sed -i 's/^pkgver=.*/pkgver=${{ needs.build.outputs.version }}/; s/^pkgrel=.*/pkgrel=1/' /home/builder/build/PKGBUILD
           cp source/montty-*.tar.gz /home/builder/build/
           chown -R builder:builder /home/builder/build
           su builder -c 'cd ~/build && makepkg -f --noconfirm'
