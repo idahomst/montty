@@ -31,27 +31,6 @@ const AUTOSAVE_DELAY: Duration = Duration::from_secs(1);
 
 const NO_CONFIG_DIR: &str = "no config directory ($HOME unset)";
 
-/// The session document of tabs given as `(title, focused leaf index, shape)`, the active
-/// tab's index and the window's logical size.
-pub(super) fn session_doc_from(
-    tabs: &[(Option<String>, usize, Shape<LeafDoc>)],
-    active: usize,
-    size: Option<(u32, u32)>,
-) -> SessionDoc {
-    SessionDoc {
-        window: size,
-        active_tab: active,
-        tabs: tabs
-            .iter()
-            .map(|(title, focused, root)| TabDoc {
-                title: title.clone(),
-                focused: *focused,
-                root: root.clone(),
-            })
-            .collect(),
-    }
-}
-
 /// A leaf as it will be started: a profile that exists, a directory that exists.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct LeafPlan {
@@ -175,6 +154,15 @@ impl Window {
         }
     }
 
+    /// The config dir, or None after a toast saying there is none.
+    fn config_dir_or_toast(&mut self) -> Option<PathBuf> {
+        let dir = self.user_config_dir().map(Path::to_path_buf);
+        if dir.is_none() {
+            self.show_error(NO_CONFIG_DIR);
+        }
+        dir
+    }
+
     /// The config dir; None when montty runs without one (`$HOME` unset).
     pub(super) fn user_config_dir(&self) -> Option<&Path> {
         let dir = self.store.dir();
@@ -200,9 +188,7 @@ impl Window {
                     .map(<[String]>::to_vec),
             }
         };
-        let tabs: Vec<_> = self
-            .tabs
-            .iter()
+        let tabs = (self.tabs.iter())
             .map(|t| {
                 let shape = t.tree.shape();
                 let focused = shape
@@ -210,12 +196,19 @@ impl Window {
                     .iter()
                     .position(|&&id| id == t.focused)
                     .unwrap_or(0);
-                (t.title.clone(), focused, shape.map(&mut |id| leaf(id)))
+                TabDoc {
+                    title: t.title.clone(),
+                    focused,
+                    root: shape.map(&mut |id| leaf(id)),
+                }
             })
             .collect();
         let size = self.window.inner_size().to_logical::<f64>(self.scale);
-        let size = Some((size.width.round() as u32, size.height.round() as u32));
-        session_doc_from(&tabs, self.tabs.active_index(), size)
+        SessionDoc {
+            window: Some((size.width.round() as u32, size.height.round() as u32)),
+            active_tab: self.tabs.active_index(),
+            tabs,
+        }
     }
 
     /// Whether opening a session may replace this window (see `fresh`).
@@ -317,14 +310,8 @@ impl Window {
             .position(|(i, _)| *i == doc.active_tab)
             .unwrap_or(0);
         let old: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.tree.panes()).collect();
-        let old_tabs = self.tabs.len();
-        for (_, tab) in staged {
-            self.tabs.push(tab);
-        }
-        for _ in 0..old_tabs {
-            self.tabs.remove(0);
-        }
-        self.tabs.select(active);
+        self.tabs
+            .replace_all(staged.into_iter().map(|(_, tab)| tab).collect(), active);
         // The old panes' PTYs shut down as they drop; late events from them find no owner.
         for id in old {
             self.forget_pane(id);
@@ -333,21 +320,7 @@ impl Window {
         self.find = None;
         self.mouse.cancel_drag();
         if let Some(saved) = doc.window {
-            // Before the window is mapped, X11 reports a 1×1 placeholder as its monitor.
-            let usable = |m: &MonitorHandle| m.size().width >= 100 && m.size().height >= 100;
-            let monitor = self
-                .window
-                .current_monitor()
-                .filter(usable)
-                .or_else(|| self.window.primary_monitor().filter(usable))
-                .or_else(|| self.window.available_monitors().find(usable))
-                .map(|m| {
-                    let size = m.size().to_logical::<f64>(m.scale_factor());
-                    (size.width, size.height)
-                });
-            let (w, h) = fit_to_monitor(saved, monitor);
-            let _ = self.window.request_inner_size(LogicalSize::new(w, h));
-            self.quiet_resize_until = Some(Instant::now() + super::sizes::QUIET_RESIZE);
+            self.resize_to_saved(saved);
         }
         if name.is_some() {
             self.last_session = name;
@@ -359,6 +332,25 @@ impl Window {
         self.relayout_all();
         self.layout_changed();
         true
+    }
+
+    /// Ask for the session's saved window size, shrunk to fit the monitor.
+    fn resize_to_saved(&mut self, saved: (u32, u32)) {
+        // Before the window is mapped, X11 reports a 1×1 placeholder as its monitor.
+        let usable = |m: &MonitorHandle| m.size().width >= 100 && m.size().height >= 100;
+        let monitor = self
+            .window
+            .current_monitor()
+            .filter(usable)
+            .or_else(|| self.window.primary_monitor().filter(usable))
+            .or_else(|| self.window.available_monitors().find(usable))
+            .map(|m| {
+                let size = m.size().to_logical::<f64>(m.scale_factor());
+                (size.width, size.height)
+            });
+        let (w, h) = fit_to_monitor(saved, monitor);
+        let _ = self.window.request_inner_size(LogicalSize::new(w, h));
+        self.quiet_resize_until = Some(Instant::now() + super::sizes::QUIET_RESIZE);
     }
 
     /// Ctrl+Shift+S or `Save session…`: the name prompt, pre-filled with the name this
@@ -382,8 +374,7 @@ impl Window {
                 return;
             }
         };
-        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.show_error(NO_CONFIG_DIR);
+        let Some(dir) = self.config_dir_or_toast() else {
             return;
         };
         // The prompt closes only once the file is written: a failure keeps the typed name.
@@ -428,8 +419,7 @@ impl Window {
     /// `Edit config`: `config.toml` (created empty when missing) in an editor (see
     /// `open_in_editor`).
     pub(super) fn edit_config(&mut self) {
-        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.show_error(NO_CONFIG_DIR);
+        let Some(dir) = self.config_dir_or_toast() else {
             return;
         };
         let file = dir.join("config.toml");
@@ -445,8 +435,7 @@ impl Window {
     /// `Edit profile "…"` in pane `pane`'s profile menu: the profile file it runs under, in
     /// an editor like `Edit config`.
     pub(super) fn edit_profile(&mut self, pane: PaneId) {
-        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.show_error(NO_CONFIG_DIR);
+        let Some(dir) = self.config_dir_or_toast() else {
             return;
         };
         let file = profile_path(&dir, self.resolved_stem(pane));
@@ -468,8 +457,7 @@ impl Window {
                 return;
             }
         };
-        let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.show_error(NO_CONFIG_DIR);
+        let Some(dir) = self.config_dir_or_toast() else {
             return;
         };
         let source = profile_path(&dir, self.resolved_stem(pane));
@@ -602,9 +590,25 @@ mod tests {
         }
     }
 
+    fn doc_with(tabs: Vec<TabDoc>, active_tab: usize, window: Option<(u32, u32)>) -> SessionDoc {
+        SessionDoc {
+            window,
+            active_tab,
+            tabs,
+        }
+    }
+
+    fn tab(title: Option<&str>, focused: usize, root: Shape<LeafDoc>) -> TabDoc {
+        TabDoc {
+            title: title.map(str::to_string),
+            focused,
+            root,
+        }
+    }
+
     fn doc() -> SessionDoc {
-        session_doc_from(
-            &[(None, 0, Shape::Leaf(leaf("default", None, None)))],
+        doc_with(
+            vec![tab(None, 0, Shape::Leaf(leaf("default", None, None)))],
             0,
             None,
         )
@@ -634,7 +638,7 @@ mod tests {
     }
 
     #[test]
-    fn session_doc_records_tabs_focus_and_titles() {
+    fn session_doc_survives_the_file_format() {
         let split = Shape::Split {
             orientation: Orientation::Horizontal,
             ratio: 0.5,
@@ -642,40 +646,21 @@ mod tests {
             b: Box::new(Shape::Leaf(leaf("dark", None, Some(&["htop"])))),
         };
         let single = Shape::Leaf(leaf("default", None, None));
-        let tabs = [
-            (Some("build".to_string()), 1, split.clone()),
-            (None, 0, single.clone()),
-        ];
-        let doc = session_doc_from(&tabs, 1, Some((800, 600)));
-        assert_eq!(doc.window, Some((800, 600)));
-        assert_eq!(doc.active_tab, 1);
-        assert_eq!(doc.tabs.len(), 2);
-        assert_eq!(doc.tabs[0].title.as_deref(), Some("build"));
-        assert_eq!(doc.tabs[0].focused, 1);
-        assert_eq!(doc.tabs[0].root, split);
-        assert_eq!(doc.tabs[1].title, None);
-        assert_eq!(doc.tabs[1].root, single);
-        // It survives the file format.
+        let tabs = vec![tab(Some("build"), 1, split), tab(None, 0, single)];
+        let doc = doc_with(tabs, 1, Some((800, 600)));
         let back = crate::session::parse(&to_json(&doc), Path::new("x.json")).unwrap();
         assert_eq!(back, doc);
     }
 
     fn doc_of(leaves: [LeafDoc; 2]) -> SessionDoc {
         let [a, b] = leaves;
-        session_doc_from(
-            &[(
-                Some("t".into()),
-                1,
-                Shape::Split {
-                    orientation: Orientation::Vertical,
-                    ratio: 0.3,
-                    a: Box::new(Shape::Leaf(a)),
-                    b: Box::new(Shape::Leaf(b)),
-                },
-            )],
-            0,
-            None,
-        )
+        let root = Shape::Split {
+            orientation: Orientation::Vertical,
+            ratio: 0.3,
+            a: Box::new(Shape::Leaf(a)),
+            b: Box::new(Shape::Leaf(b)),
+        };
+        doc_with(vec![tab(Some("t"), 1, root)], 0, None)
     }
 
     #[test]

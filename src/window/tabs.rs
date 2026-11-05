@@ -80,6 +80,14 @@ impl Tabs {
         self.tabs.iter()
     }
 
+    /// Replaces every tab with `tabs` (not empty) and activates `active`.
+    pub fn replace_all(&mut self, tabs: Vec<Tab>, active: usize) {
+        debug_assert!(!tabs.is_empty());
+        self.tabs = tabs;
+        self.active = active.min(self.tabs.len().saturating_sub(1));
+        self.generation += 1;
+    }
+
     pub fn get_mut(&mut self, i: usize) -> Option<&mut Tab> {
         self.tabs.get_mut(i)
     }
@@ -185,6 +193,16 @@ mod tests {
         t.push(tab(2));
         t.push(tab(3));
         t
+    }
+
+    #[test]
+    fn replace_all_swaps_tabs_and_bumps_generation() {
+        let mut t = three();
+        let g = t.generation();
+        t.replace_all(vec![tab(7), tab(8)], 1);
+        assert_eq!(order(&t), [7, 8]);
+        assert_eq!(t.active_index(), 1);
+        assert_ne!(t.generation(), g);
     }
 
     #[test]
