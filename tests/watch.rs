@@ -45,6 +45,8 @@ fn watcher_ignores_reads() {
     let t = Tmp::new("watch-it");
     fs::write(t.0.join("a.toml"), "x = 1\n").unwrap();
     let (_w, rx) = watcher(std::slice::from_ref(&t.0));
+    // FSEvents can still report the write above, made just before the watch.
+    while fired(&rx, QUIET) {}
     // A reload reads every file and lists the dir: that must not fire (no reload loop).
     let _ = fs::read_to_string(t.0.join("a.toml")).unwrap();
     let _ = fs::read_dir(&t.0).unwrap().count();
