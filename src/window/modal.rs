@@ -163,7 +163,7 @@ pub(super) fn resolve_rename(tabs: &Tabs, pane: PaneId) -> Option<usize> {
 pub(super) fn closes_window(target: &CloseTarget, tabs: &Tabs) -> bool {
     match target {
         CloseTarget::Window => true,
-        CloseTarget::Tab(_) => tabs.iter().count() == 1,
+        CloseTarget::Tab(_) => tabs.len() == 1,
         CloseTarget::Pane(_) => false,
     }
 }
@@ -1024,7 +1024,7 @@ impl Window {
         };
         let title = renamed_title(original.as_deref(), seed, text);
         if let Some(i) = resolve_rename(&self.tabs, *pane) {
-            if let Some(tab) = self.tabs.iter_mut().nth(i) {
+            if let Some(tab) = self.tabs.get_mut(i) {
                 tab.title = title;
             }
             self.layout_changed();

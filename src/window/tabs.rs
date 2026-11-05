@@ -62,7 +62,6 @@ impl Tabs {
         self.active
     }
 
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.tabs.len()
     }
@@ -79,6 +78,10 @@ impl Tabs {
 
     pub fn iter(&self) -> impl Iterator<Item = &Tab> {
         self.tabs.iter()
+    }
+
+    pub fn get_mut(&mut self, i: usize) -> Option<&mut Tab> {
+        self.tabs.get_mut(i)
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tab> {

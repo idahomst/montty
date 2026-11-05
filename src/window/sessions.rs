@@ -254,7 +254,7 @@ impl Window {
             .clone()
             .any(|p| pane_running(p.runs_command(), || p.has_foreground_child()));
         let typed = panes.clone().any(Pane::got_input);
-        fresh(self.tabs.iter().count(), ids.len(), busy, typed)
+        fresh(self.tabs.len(), ids.len(), busy, typed)
     }
 
     /// Open the saved session `name`: in this window when it is fresh, else in a new one.
@@ -355,7 +355,7 @@ impl Window {
             .position(|(i, _)| *i == doc.active_tab)
             .unwrap_or(0);
         let old: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.tree.panes()).collect();
-        let old_tabs = self.tabs.iter().count();
+        let old_tabs = self.tabs.len();
         for (_, tab) in staged {
             self.tabs.push(tab);
         }

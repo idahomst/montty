@@ -471,7 +471,7 @@ pub(super) fn remove_pane(tabs: &mut Tabs, pane: PaneId, area: Rect) -> bool {
     let Some(i) = tabs.tab_of(pane) else {
         return false;
     };
-    let Some(tab) = tabs.iter_mut().nth(i) else {
+    let Some(tab) = tabs.get_mut(i) else {
         return false;
     };
     let was_focused = pane == tab.focused;

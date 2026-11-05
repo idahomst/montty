@@ -115,7 +115,7 @@ impl Window {
     /// Per tab (by index) its most urgent dot's level.
     pub(super) fn tab_marks(&self) -> Vec<Option<Level>> {
         if !self.store.global().attention_marks {
-            return vec![None; self.tabs.iter().count()];
+            return vec![None; self.tabs.len()];
         }
         let looking = self.looking_at();
         self.tabs
@@ -129,7 +129,7 @@ impl Window {
     }
 
     fn tab_dot_label(&self, index: usize) -> Option<Dot> {
-        let tab = self.tabs.iter().nth(index)?;
+        let tab = self.tabs.get(index)?;
         self.attention.tab_dot(&tab.tree.panes(), self.looking_at())
     }
 

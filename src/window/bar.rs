@@ -330,11 +330,11 @@ impl Window {
 
     /// The label the bar shows for the tab holding `pane`, sanitised for a notification.
     pub(super) fn tab_title_of(&self, pane: PaneId) -> String {
-        let labels = tab_labels(&self.tabs, |id| {
-            self.panes.get(&id).and_then(|p| p.title.as_deref())
+        let label = (self.tabs.tab_of(pane).and_then(|i| self.tabs.get(i))).map(|t| {
+            let title = self.panes.get(&t.focused).and_then(|p| p.title.as_deref());
+            tab_label(t.title.as_deref(), title)
         });
-        let label = self.tabs.tab_of(pane).and_then(|i| labels.get(i));
-        crate::term::status::display_text(label.map_or("montty", String::as_str))
+        crate::term::status::display_text(label.as_deref().unwrap_or("montty"))
     }
 
     /// The OS window title follows the active tab's label.

@@ -2526,7 +2526,7 @@ mod tests {
     #[test]
     fn all_layouts_covers_hidden_tabs() {
         let mut tabs = three_tabs();
-        tabs.iter_mut().nth(1).unwrap().tree.toggle_maximize(3);
+        tabs.get_mut(1).unwrap().tree.toggle_maximize(3);
         let area = Rect {
             x: 0,
             y: 0,
