@@ -24,9 +24,10 @@ pub enum ToastSource {
     Watcher,
     /// A profile's font family isn't installed (the pane uses monospace).
     Font,
-    /// A profile's shell or command couldn't start (the pane runs a fallback shell), or no
-    /// shell would start for a split or new tab. A reload doesn't fix it, so it doesn't hide it.
-    Spawn,
+    /// An action failed: a profile's shell or command couldn't start (the pane runs a
+    /// fallback shell), no shell would start for a split or new tab, or a session or profile
+    /// couldn't be opened or saved. A reload doesn't fix it, so it doesn't hide it.
+    Error,
     /// A profile's background image is missing or can't be decoded (the pane draws without).
     Image,
     /// Something that worked (`saved session 'x'`): neutral colors, not an error.

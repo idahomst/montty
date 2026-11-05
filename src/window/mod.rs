@@ -341,7 +341,7 @@ fn next_toast(
     now: Instant,
 ) -> Option<Toast> {
     match pending_error {
-        Some(text) => Some(Toast::new(&text, ToastSource::Spawn, now)),
+        Some(text) => Some(Toast::new(&text, ToastSource::Error, now)),
         None => images(),
     }
 }
@@ -715,7 +715,7 @@ impl Window {
                 eprintln!("montty: {body}{tail}");
                 // One toast at a time: the config's own errors come first.
                 toast
-                    .get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Spawn, now));
+                    .get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Error, now));
             }
             first_pane = Some(pane);
         }
@@ -836,7 +836,7 @@ impl Window {
             self.pending_error = Some(text.to_string());
             return;
         }
-        self.toast = Some(Toast::new(text, ToastSource::Spawn, Instant::now()));
+        self.toast = Some(Toast::new(text, ToastSource::Error, Instant::now()));
         self.schedule();
     }
 
@@ -1547,7 +1547,7 @@ impl Window {
         self.toast = Some(Toast::with_tail(
             text,
             tail,
-            ToastSource::Spawn,
+            ToastSource::Error,
             Instant::now(),
         ));
         self.schedule();
@@ -2124,7 +2124,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(t.text, "boom");
-        assert_eq!(t.source, ToastSource::Spawn);
+        assert_eq!(t.source, ToastSource::Error);
         assert_eq!(t.until, now + crate::ui::toast::TOAST_DURATION);
         assert!(!called.get());
     }
@@ -2142,7 +2142,7 @@ mod tests {
         assert!(error_replaces(Some(ToastSource::Info)));
         assert!(!error_replaces(Some(ToastSource::ConfigReload)));
         assert!(!error_replaces(Some(ToastSource::Startup)));
-        assert!(!error_replaces(Some(ToastSource::Spawn)));
+        assert!(!error_replaces(Some(ToastSource::Error)));
     }
 
     #[test]
