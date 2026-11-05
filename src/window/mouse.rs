@@ -235,62 +235,53 @@ impl Window {
             }
             return;
         }
-        if state == ElementState::Pressed && self.modal_open() {
+        match state {
+            ElementState::Pressed => self.mouse_press(button),
+            ElementState::Released => self.mouse_release(button),
+        }
+    }
+
+    /// A press goes to the first of these that takes it, in order. The modal takes every
+    /// press; Ctrl+click on a link comes before mouse reporting, so it opens the link even
+    /// for a program that asked for mouse events. While a divider is dragged, a press of
+    /// another button skips straight to the panes.
+    fn mouse_press(&mut self, button: MouseButton) {
+        if self.modal_open() {
             self.modal_press(button);
             return;
         }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.toast_press() {
-            return;
-        }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.bar_press(button) {
-            return;
-        }
-        if state == ElementState::Pressed
-            && self.mouse.drag.is_none()
-            && self.find.is_some()
-            && self.find_press(button)
+        if self.mouse.drag.is_none()
+            && (self.toast_press()
+                || self.bar_press(button)
+                || (self.find.is_some() && self.find_press(button))
+                || self.overlay_press(button)
+                || (button == MouseButton::Left && self.link_press())
+                || self.report_press(button))
         {
             return;
         }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.overlay_press(button)
-        {
+        match button {
+            MouseButton::Middle => self.middle_press(),
+            MouseButton::Right => self.right_press(),
+            MouseButton::Left => self.left_press(),
+            _ => {}
+        }
+    }
+
+    fn mouse_release(&mut self, button: MouseButton) {
+        if self.report_release(button) || button != MouseButton::Left {
             return;
         }
-        // Ahead of mouse reporting: Ctrl+click opens a link even for a program that
-        // asked for mouse events. A Ctrl press off a link falls through unchanged.
-        if state == ElementState::Pressed
-            && button == MouseButton::Left
-            && self.mouse.drag.is_none()
-            && self.link_press()
-        {
-            return;
+        if self.mouse.drag.take().is_some() {
+            self.layout_changed();
         }
-        if state == ElementState::Released && self.report_release(button) {
-            return;
-        }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.report_press(button)
-        {
-            return;
-        }
-        if button == MouseButton::Middle && state == ElementState::Pressed {
-            self.middle_press();
-            return;
-        }
-        if button == MouseButton::Right && state == ElementState::Pressed {
-            self.right_press();
-            return;
-        }
-        if button != MouseButton::Left {
-            return;
-        }
-        if state == ElementState::Released {
-            if self.mouse.drag.take().is_some() {
-                self.layout_changed();
-            }
-            self.selection_release();
-            self.refresh_overlay();
-            return;
-        }
+        self.selection_release();
+        self.refresh_overlay();
+    }
+
+    /// A left press on a divider starts its drag (a double click equalizes it); in a pane
+    /// it starts a selection.
+    fn left_press(&mut self) {
         let area = self.area();
         let (x, y) = self.mouse.pos;
         if let Some(d) = divider_at(&self.tabs.active().tree.dividers(area), x, y) {
