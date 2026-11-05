@@ -414,31 +414,28 @@ pub fn new_profile_file(name: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// Profile file text `src` with its display name set to `name`: the top-level `name = …`
-/// line (before any table) replaced, or one added first.
+/// Profile file text `src` with its display name set to `name`: the line holding the
+/// top-level `name = …` replaced, or one added first. The parser finds it, so a line inside
+/// a multi-line array or string is never taken for a table header or the key.
 pub fn with_name(src: &str, name: &str) -> String {
+    #[derive(Deserialize)]
+    struct NameOnly {
+        name: Option<Spanned<toml::Value>>,
+    }
     let escaped = name.replace('\\', "\\\\").replace('"', "\\\"");
     let line = format!("name = \"{escaped}\"");
-    let mut out = String::with_capacity(src.len() + line.len() + 1);
-    let (mut in_table, mut replaced) = (false, false);
-    for l in src.split_inclusive('\n') {
-        let t = l.trim_start();
-        in_table |= t.starts_with('[');
-        let is_name = t
-            .strip_prefix("name")
-            .is_some_and(|rest| rest.trim_start().starts_with('='));
-        if !in_table && !replaced && is_name {
-            out.push_str(&line);
-            out.push('\n');
-            replaced = true;
-        } else {
-            out.push_str(l);
+    let span = toml::from_str::<NameOnly>(src)
+        .ok()
+        .and_then(|n| n.name)
+        .map(|v| v.span());
+    match span {
+        Some(v) => {
+            let start = src[..v.start].rfind('\n').map_or(0, |i| i + 1);
+            let end = src[v.end..].find('\n').map_or(src.len(), |i| v.end + i);
+            format!("{}{line}{}", &src[..start], &src[end..])
         }
+        None => format!("{line}\n{src}"),
     }
-    if !replaced {
-        out.insert_str(0, &format!("{line}\n"));
-    }
-    out
 }
 
 pub const DEFAULT_PROFILE_TOML: &str = r##"# montty profile — edit and save; changes apply live. Reference: docs/config.md
@@ -527,6 +524,16 @@ mod tests {
         assert_eq!(p.font_size, parse(DEFAULT_PROFILE_TOML).unwrap().font_size);
         // `name` inside a table, or a key that only starts with "name", isn't the top-level name.
         assert_eq!(with_name("names = 1\n", "W"), "name = \"W\"\nnames = 1\n");
+    }
+
+    #[test]
+    fn with_name_skips_lines_inside_multi_line_values() {
+        // A continuation line that starts with `[` is not a table header.
+        let src = "x = [\n  [1],\n]\nname = \"Old\"\n";
+        assert_eq!(with_name(src, "New"), "x = [\n  [1],\n]\nname = \"New\"\n");
+        let src = "command = [\"sh\", \"-c\", \"\"\"\n[ -n \"$X\" ] && exec zsh\n\"\"\"]\nname = \"Old\"\n";
+        let p = parse(&with_name(src, "New")).unwrap();
+        assert_eq!(p.name, "New");
     }
 
     #[test]
