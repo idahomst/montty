@@ -8,13 +8,11 @@ use std::path::{Path, PathBuf};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::config::ConfigError;
+use crate::config::{ConfigError, check_file_stem};
 use crate::layout::{Orientation, Shape};
 
 /// The name reserved for the autosave; only `last_file` reaches it.
 pub const LAST: &str = "_last";
-
-const MAX_NAME_CHARS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LeafDoc {
@@ -292,24 +290,11 @@ pub fn to_json(doc: &SessionDoc) -> String {
 // ---- names and files ----
 
 fn check_name(name: &str) -> Result<(), String> {
-    let n = name.chars().count();
-    if n == 0 {
-        Err("the name is empty".into())
-    } else if n > MAX_NAME_CHARS {
-        Err(format!(
-            "the name is longer than {MAX_NAME_CHARS} characters"
-        ))
-    } else if name.contains('/') {
-        Err("the name can't contain '/'".into())
-    } else if name.chars().any(char::is_control) {
-        Err("the name can't contain control characters".into())
-    } else if name.starts_with('.') {
-        Err("the name can't start with '.'".into())
-    } else if name == LAST {
-        Err(format!("'{LAST}' is reserved for the automatic save"))
-    } else {
-        Ok(())
+    check_file_stem(name, &['.'])?;
+    if name == LAST {
+        return Err(format!("'{LAST}' is reserved for the automatic save"));
     }
+    Ok(())
 }
 
 /// `sessions/<name>.json` relative to the config dir, or why the name is invalid.

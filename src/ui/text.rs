@@ -2,6 +2,11 @@
 
 use unicode_width::UnicodeWidthChar;
 
+/// Whether `s` holds a control character.
+pub fn has_control(s: &str) -> bool {
+    s.chars().any(char::is_control)
+}
+
 /// Drop control characters (escape sequences, newlines, ...).
 pub fn sanitize(s: &str) -> String {
     s.chars().filter(|c| !c.is_control()).collect()

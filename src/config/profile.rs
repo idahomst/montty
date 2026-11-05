@@ -405,28 +405,11 @@ impl Profile {
     }
 }
 
-/// Longest new profile name, in characters.
-const MAX_NAME_CHARS: usize = 64;
-
 /// `profiles/<name>.toml` relative to the config folder for a new profile named `name`,
 /// or why the name can't be a file name (montty skips files starting with `.` or `#`).
 pub fn new_profile_file(name: &str) -> Result<PathBuf, String> {
-    let n = name.chars().count();
-    if n == 0 {
-        Err("the name is empty".into())
-    } else if n > MAX_NAME_CHARS {
-        Err(format!(
-            "the name is longer than {MAX_NAME_CHARS} characters"
-        ))
-    } else if name.contains('/') {
-        Err("the name can't contain '/'".into())
-    } else if name.chars().any(char::is_control) {
-        Err("the name can't contain control characters".into())
-    } else if name.starts_with(['.', '#']) {
-        Err("the name can't start with '.' or '#'".into())
-    } else {
-        Ok(Path::new("profiles").join(format!("{name}.toml")))
-    }
+    super::check_file_stem(name, &['.', '#'])?;
+    Ok(Path::new("profiles").join(format!("{name}.toml")))
 }
 
 /// Profile file text `src` with its display name set to `name`: the line holding the

@@ -1,5 +1,6 @@
 //! Find bar state and layout (pure; the search itself is `window/find.rs`).
 
+use super::text::{has_control, sanitize};
 use super::textfield::{FieldOutcome, TextField};
 use super::topbar::BarMetrics;
 use crate::input::Mods;
@@ -68,7 +69,7 @@ impl FindBar {
     /// only, control characters dropped. True when the field's text changed.
     pub fn paste(&mut self, text: &str) -> bool {
         let line = text.split(['\r', '\n']).next().unwrap_or("");
-        let line: String = line.chars().filter(|c| !c.is_control()).collect();
+        let line = sanitize(line);
         if line.is_empty() {
             return false;
         }
@@ -123,7 +124,7 @@ fn replaces_selection(key: &Key, text: Option<&str>, mods: Mods) -> bool {
     match key {
         Key::Named(NamedKey::Backspace | NamedKey::Delete) => true,
         Key::Named(NamedKey::Enter | NamedKey::Escape) => false,
-        _ => text.is_some_and(|t| !t.is_empty() && !t.chars().any(char::is_control)),
+        _ => text.is_some_and(|t| !t.is_empty() && !has_control(t)),
     }
 }
 

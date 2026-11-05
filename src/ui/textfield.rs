@@ -1,5 +1,6 @@
 //! Single-line text input state for the rename dialog (pure; no drawing).
 
+use super::text::{has_control, sanitize};
 use crate::input::Mods;
 use winit::keyboard::{Key, NamedKey};
 
@@ -24,7 +25,7 @@ pub struct TextField {
 impl TextField {
     /// Control chars in `initial` are dropped, as typed ones are.
     pub fn new(initial: &str) -> Self {
-        let text: String = initial.chars().filter(|c| !c.is_control()).collect();
+        let text = sanitize(initial);
         Self {
             cursor: text.chars().count(),
             text,
@@ -74,7 +75,7 @@ impl TextField {
             Key::Named(NamedKey::ArrowRight) => self.move_to((cursor + 1).min(len)),
             Key::Named(NamedKey::Home) => self.move_to(0),
             Key::Named(NamedKey::End) => self.move_to(len),
-            _ => match text.filter(|t| !t.is_empty() && !t.chars().any(char::is_control)) {
+            _ => match text.filter(|t| !t.is_empty() && !has_control(t)) {
                 Some(t) => {
                     self.insert(t);
                     FieldOutcome::Edited
