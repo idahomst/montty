@@ -27,6 +27,19 @@ pub struct GlTexture<'a> {
     pub tex: glow::Texture,
 }
 
+/// Glyph lookup through the atlas, uploading missing glyphs to its texture.
+struct AtlasLookup<'a> {
+    atlas: &'a mut GlyphAtlas,
+    tex: GlTexture<'a>,
+    fonts: &'a mut FontSet,
+}
+
+impl AtlasLookup<'_> {
+    fn get(&mut self, ch: char, style: Style) -> Option<atlas::AtlasGlyph> {
+        self.atlas.get(ch, style, self.fonts, &mut self.tex)
+    }
+}
+
 /// Allocate (or reallocate) `tex` as an empty `size` x `size` RGBA texture.
 unsafe fn alloc_texture(gl: &glow::Context, tex: glow::Texture, size: u32) {
     unsafe {
@@ -180,6 +193,32 @@ impl Renderer {
         }
     }
 
+    /// Run `build` (which fills the cell and rect buffers, looking glyphs up through the
+    /// atlas) until no atlas clear or growth happened mid-build: that makes the build's
+    /// earlier glyphs stale. Up to three builds (a first fill clears, a second grows).
+    /// Draws already issued are safe: GL runs a texture upload or reallocation after them.
+    fn build_with_atlas(
+        &mut self,
+        fonts: &mut FontSet,
+        mut build: impl FnMut(&mut AtlasLookup, &mut Vec<CellInstance>, &mut Vec<RectInstance>),
+    ) {
+        for _ in 0..3 {
+            let generation = self.atlas.generation();
+            let mut lookup = AtlasLookup {
+                atlas: &mut self.atlas,
+                tex: GlTexture {
+                    gl: &self.gl,
+                    tex: self.atlas_tex,
+                },
+                fonts: &mut *fonts,
+            };
+            build(&mut lookup, &mut self.cell_buf, &mut self.rect_buf);
+            if self.atlas.generation() == generation {
+                break;
+            }
+        }
+    }
+
     /// Draw a pane's cells at `content`; nothing is drawn outside `clip` (the pane's
     /// rect), so a cell larger than a tiny pane cannot paint over its neighbours.
     /// Default-bg cells get bg alpha `default_bg_alpha` (see `cells::build_instances`).
@@ -195,33 +234,22 @@ impl Renderer {
         focused: bool,
         default_bg_alpha: u8,
     ) {
-        // An atlas clear or growth mid-build makes this build's earlier glyphs stale: rebuild,
-        // up to three times (a first fill clears, a second grows). Draws already issued are
-        // safe: GL runs a texture upload or reallocation after them.
-        for _ in 0..3 {
-            let generation = self.atlas.generation();
-            let atlas = &mut self.atlas;
-            let mut tex = GlTexture {
-                gl: &self.gl,
-                tex: self.atlas_tex,
-            };
+        let cursor = CursorStyle {
+            focused,
+            color: self.cursor_color,
+        };
+        self.build_with_atlas(fonts, |atlas, cells, rects| {
             cells::build_instances(
                 snap,
                 content,
                 m,
-                CursorStyle {
-                    focused,
-                    color: self.cursor_color,
-                },
-                |ch, style| atlas.get(ch, style, fonts, &mut tex),
-                &mut self.cell_buf,
-                &mut self.rect_buf,
+                cursor,
+                |ch, style| atlas.get(ch, style),
+                cells,
+                rects,
                 default_bg_alpha,
             );
-            if self.atlas.generation() == generation {
-                break;
-            }
-        }
+        });
         let uniforms = CellUniforms {
             proj: &self.proj,
             origin: (content.x, content.y),
@@ -253,25 +281,9 @@ impl Renderer {
         m: &Metrics,
     ) {
         let laid_out = crate::ui::text::layout_cells(text);
-        // If the atlas clears or grows mid-build, glyphs fetched earlier are stale: rebuild.
-        // Up to three builds: a first fill clears, a second fill in the same frame grows.
-        for _ in 0..3 {
-            let generation = self.atlas.generation();
-            let atlas = &mut self.atlas;
-            let mut tex = GlTexture {
-                gl: &self.gl,
-                tex: self.atlas_tex,
-            };
-            cells::text_instances(
-                &laid_out,
-                fg,
-                |ch| atlas.get(ch, Style::Regular, fonts, &mut tex),
-                &mut self.cell_buf,
-            );
-            if self.atlas.generation() == generation {
-                break;
-            }
-        }
+        self.build_with_atlas(fonts, |atlas, cells, _| {
+            cells::text_instances(&laid_out, fg, |ch| atlas.get(ch, Style::Regular), cells);
+        });
         let uniforms = CellUniforms {
             proj: &self.proj,
             origin: (x, y),
