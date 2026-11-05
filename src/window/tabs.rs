@@ -150,16 +150,14 @@ impl Tabs {
     }
 
     pub fn tab_of(&self, pane: PaneId) -> Option<usize> {
-        self.tabs
-            .iter()
-            .position(|t| t.tree.panes().contains(&pane))
+        self.tabs.iter().position(|t| t.tree.contains(pane))
     }
 }
 
 /// True when `pane` is in the active tab and not hidden behind another
 /// maximized pane.
 pub fn visible(tabs: &Tabs, pane: PaneId) -> bool {
-    if tabs.is_empty() || !tabs.active().tree.panes().contains(&pane) {
+    if tabs.is_empty() || !tabs.active().tree.contains(pane) {
         return false;
     }
     tabs.active().tree.maximized().is_none_or(|m| m == pane)

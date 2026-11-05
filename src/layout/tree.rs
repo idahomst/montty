@@ -226,6 +226,13 @@ fn collect_panes(n: &Node, out: &mut Vec<PaneId>) {
     }
 }
 
+fn has_pane(n: &Node, pane: PaneId) -> bool {
+    match n {
+        Node::Leaf(id) => *id == pane,
+        Node::Split { a, b, .. } => has_pane(a, pane) || has_pane(b, pane),
+    }
+}
+
 /// Path (0 = first, 1 = second) from `n` to the leaf `pane`.
 fn path_to(n: &Node, pane: PaneId, path: &mut Vec<u8>) -> bool {
     match n {
@@ -499,12 +506,16 @@ impl SplitTree {
     /// Trade the slots of `a` and `b`: each takes the other's place and size.
     /// False, and nothing changes, when `a == b` or either is missing.
     pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
-        let panes = self.panes();
-        if a == b || !panes.contains(&a) || !panes.contains(&b) {
+        if a == b || !self.contains(a) || !self.contains(b) {
             return false;
         }
         swap_leaves(&mut self.root, a, b);
         true
+    }
+
+    /// Like `panes().contains(..)` without the allocation (it runs on every PTY wakeup).
+    pub fn contains(&self, pane: PaneId) -> bool {
+        has_pane(&self.root, pane)
     }
 
     pub fn panes(&self) -> Vec<PaneId> {
@@ -664,7 +675,7 @@ impl SplitTree {
     pub fn toggle_maximize(&mut self, pane: PaneId) {
         self.maximized = if self.maximized == Some(pane) {
             None
-        } else if self.panes().contains(&pane) {
+        } else if self.contains(pane) {
             Some(pane)
         } else {
             self.maximized
@@ -846,6 +857,14 @@ mod tests {
                 )
             ]
         );
+    }
+    #[test]
+    fn contains_finds_every_leaf_only() {
+        let mut t = SplitTree::new(1);
+        t.split(1, Orientation::Horizontal, 2);
+        t.split(2, Orientation::Vertical, 3);
+        assert!([1, 2, 3].iter().all(|&p| t.contains(p)));
+        assert!(!t.contains(4));
     }
     #[test]
     fn panes_depth_first_order() {
