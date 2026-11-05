@@ -2247,8 +2247,11 @@ mod tests {
         );
         assert!(fb.err.contains("No such file"), "{}", fb.err);
         assert!(!pane.runs_command(), "a fallback shell is a shell");
-        let cmdline = std::fs::read(format!("/proc/{}/cmdline", pane.shell_pid())).unwrap();
-        assert!(cmdline.starts_with(b"/bin/sh\0"), "{cmdline:?}");
+        #[cfg(not(target_os = "macos"))]
+        {
+            let cmdline = std::fs::read(format!("/proc/{}/cmdline", pane.shell_pid())).unwrap();
+            assert!(cmdline.starts_with(b"/bin/sh\0"), "{cmdline:?}");
+        }
         // -e: no fallback.
         let e = pane_options(
             &p,

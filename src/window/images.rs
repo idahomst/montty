@@ -391,9 +391,18 @@ impl Window {
         let wid = self.window.id();
         let key = path.clone();
         let job = move || {
-            // Not `current_exe()`: once the binary is replaced (an upgrade) that path reads
-            // "… (deleted)", while /proc/self/exe still executes the running image.
-            let exe = Path::new("/proc/self/exe");
+            // Not `current_exe()` on Linux: once the binary is replaced (an upgrade) that
+            // path reads "… (deleted)", while /proc/self/exe still executes the running
+            // image. macOS has no /proc; there an upgrade's new binary runs as the helper.
+            #[cfg(not(target_os = "macos"))]
+            let exe = PathBuf::from("/proc/self/exe");
+            #[cfg(target_os = "macos")]
+            let Ok(exe) = std::env::current_exe() else {
+                let err = Err("cannot find montty's own binary".to_string());
+                sink.send(UserEvent::ImageLoaded(wid, key, id, err));
+                return;
+            };
+            let exe = exe.as_path();
             let img = decode_in_helper(exe, &file, max, DECODE_TIMEOUT).map(Arc::new);
             sink.send(UserEvent::ImageLoaded(wid, key, id, img));
         };

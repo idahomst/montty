@@ -88,7 +88,8 @@ fn limit_address_space() {
         rlim_cur: HELPER_AS_LIMIT as libc::rlim_t,
         rlim_max: HELPER_AS_LIMIT as libc::rlim_t,
     };
-    // Best effort: without the limit the decode still works, just unbounded.
+    // Best effort: without the limit the decode still works, just unbounded. macOS accepts
+    // RLIMIT_AS but does not enforce it; there only `MAX_PIXELS` bounds a decode.
     // SAFETY: setrlimit only reads the struct.
     unsafe { libc::setrlimit(libc::RLIMIT_AS, &lim) };
 }

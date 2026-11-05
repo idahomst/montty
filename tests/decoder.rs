@@ -160,7 +160,9 @@ fn fake_timeout_kills_the_child() {
     assert!(t.elapsed() >= Duration::from_secs(2), "{:?}", t.elapsed());
     assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
     let pid = std::fs::read_to_string(d.join("pid")).unwrap();
-    let alive = Path::new(&format!("/proc/{}", pid.trim())).exists();
+    let pid: libc::pid_t = pid.trim().parse().unwrap();
+    // SAFETY: signal 0 only checks that the process exists.
+    let alive = unsafe { libc::kill(pid, 0) } == 0;
     assert!(!alive, "child still there");
 }
 
