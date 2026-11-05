@@ -26,6 +26,12 @@ fn fired(rx: &Receiver<()>, within: Duration) -> bool {
     rx.recv_timeout(within).is_ok()
 }
 
+/// Waits out events for writes made before the watch: FSEvents (macOS) can still report
+/// them once the watch is running; inotify never does.
+fn settle(rx: &Receiver<()>) {
+    while fired(rx, QUIET) {}
+}
+
 /// Quiet time that must pass with no callback.
 const QUIET: Duration = Duration::from_millis(300);
 const FIRE: Duration = Duration::from_secs(2);
@@ -45,8 +51,7 @@ fn watcher_ignores_reads() {
     let t = Tmp::new("watch-it");
     fs::write(t.0.join("a.toml"), "x = 1\n").unwrap();
     let (_w, rx) = watcher(std::slice::from_ref(&t.0));
-    // FSEvents can still report the write above, made just before the watch.
-    while fired(&rx, QUIET) {}
+    settle(&rx);
     // A reload reads every file and lists the dir: that must not fire (no reload loop).
     let _ = fs::read_to_string(t.0.join("a.toml")).unwrap();
     let _ = fs::read_dir(&t.0).unwrap().count();
@@ -63,6 +68,7 @@ fn symlink_target_dir_sees_only_targets() {
         w.set_watched(&[(t.0.clone(), Scope::Only(vec![target.clone()]))])
             .is_empty()
     );
+    settle(&rx);
     // An unrelated file in the same dir (think $HOME/.bash_history).
     fs::write(t.0.join("unrelated"), "x").unwrap();
     fs::write(t.0.join("unrelated"), "y").unwrap();
