@@ -21,6 +21,7 @@ cargo fmt --check
 
 Top-level modules (`src/`):
 
+- `lib.rs`: declares the modules, so the integration tests in `tests/` can use them.
 - `main.rs`: entry point. `--decode-image` runs the decoder helper with no event loop; otherwise parse args and run `App`.
 - `cli.rs`: command-line parsing (`--profile`, `--session`, `-e`, `--help`).
 - `app.rs`: the winit `ApplicationHandler`; owns all windows, routes events, computes the event loop's control flow.
@@ -36,8 +37,8 @@ Top-level modules (`src/`):
   `rects.rs` (solid rects for chrome and cursor), `shapes.rs` (antialiased strokes for icons: round-capped lines,
   rounded-rect outlines, rings), `image.rs` (background image decode, fit math, quad), `shaders/`.
 - `font/`: font discovery (fontdb), rasterization (swash), fallback, `fc-match` lookup of `monospace`.
-- `ui/`: pure chrome state and geometry, no GL: top bar, menu, panel, confirm, find bar, text field, toast, overlay,
-  scrollbar, icons (stroke geometry), theme, text helpers.
+- `ui/`: pure chrome state and geometry, no GL: `topbar.rs`, `menu.rs`, `panel.rs`, `confirm.rs`, `findbar.rs`,
+  `textfield.rs`, `toast.rs`, `overlay.rs`, `scrollbar.rs`, `icons.rs` (stroke geometry), `theme.rs`, `text.rs`.
 - `input/`: key to xterm bytes (`keys.rs`), kitty keyboard protocol encoding (`kitty.rs`), key-binding parsing and the
   action table (`bindings.rs`), mouse reporting, paste.
 - `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).
@@ -112,6 +113,7 @@ Key flows:
   ```
   `xtest.py --help` lists the commands (keys, typing, clicks, drags, wheel, resize). There is no window manager on
   `:5`, so run `focus` before sending keys.
+- `scripts/bench.sh latency` drives `$DISPLAY` with XTest: run it with `DISPLAY=:5` (Xephyr), not on the live display.
 - The real `~/.config/montty` must never be read or written; the helper uses its own temp config.
 - Kill test processes by PID, never by name.
 
@@ -121,7 +123,10 @@ Key flows:
   (`packaging/deb/build-deb.sh <version> <binary> <out-dir>`), a tarball, and an Arch package (`packaging/arch/PKGBUILD`
   in an Arch container), and attaches them to a GitHub release.
 - `assets/`: `montty.desktop`, `icon/hicolor/<N>x<N>/apps/montty.png`, and the built-in Tilix schemes in `schemes/`.
-- Keep the version in `Cargo.toml` and `packaging/arch/PKGBUILD` in step with the tag.
+- Keep the version in `Cargo.toml` and `packaging/arch/PKGBUILD` in step with the tag; the release workflow fails
+  otherwise.
+- Pushes to `main` and pull requests run `.github/workflows/ci.yml`: `cargo fmt --check`, clippy with `-D warnings`,
+  and the tests.
 
 ## Docs
 
