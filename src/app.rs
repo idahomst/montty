@@ -142,7 +142,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let last = (restore
                     && dir.as_deref().is_some_and(|d| d.join(last_file()).exists()))
                 .then(|| read_file(dir.as_deref(), &last_file()));
-                match startup_init(restore, last, false, self.args.command.is_some()) {
+                match startup_init(restore, last, self.args.command.is_some()) {
                     StartupInit::Session(doc) => WindowInit::Session {
                         doc,
                         name: None,
@@ -176,7 +176,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
-        self.with_window(el, id, true, |w| w.handle_window_event(ev, el));
+        self.with_window(el, id, true, |w| w.handle_window_event(ev));
     }
 
     fn user_event(&mut self, el: &ActiveEventLoop, ev: UserEvent) {

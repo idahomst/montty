@@ -131,14 +131,14 @@ pub enum StartupInit {
 }
 
 /// The startup decision for restoring the last session: `last` is the result of reading
-/// `_last.json` (None when there is no such file). `-e` or `--session` win over it.
+/// `_last.json` (None when there is no such file). `-e` wins over it; the caller handles
+/// `--session` before asking.
 pub fn startup_init(
     restore: bool,
     last: Option<Result<SessionDoc, String>>,
-    cli_session: bool,
     cli_command: bool,
 ) -> StartupInit {
-    if !restore || cli_session || cli_command {
+    if !restore || cli_command {
         return StartupInit::Default;
     }
     match last {
@@ -289,7 +289,6 @@ impl Window {
             leaves.push((id, leaf));
             id
         });
-        let mut started = Vec::new();
         let mut all_ok = true;
         for (id, leaf) in &leaves {
             let style = PaneStyle {
@@ -305,7 +304,6 @@ impl Window {
             };
             self.panes.insert(*id, pane);
             self.sizes.insert(*id, size);
-            started.push(*id);
         }
         let (tree, focused) = if all_ok {
             let focused = leaves[plan.focused.min(leaves.len() - 1)].0;
@@ -673,22 +671,21 @@ mod tests {
     fn invalid_last_starts_default() {
         let bad = || Some(Err("sessions/_last.json:1: bad".to_string()));
         assert_eq!(
-            startup_init(true, bad(), false, false),
+            startup_init(true, bad(), false),
             StartupInit::DefaultWithError("sessions/_last.json:1: bad".into())
         );
-        assert_eq!(startup_init(true, None, false, false), StartupInit::Default);
+        assert_eq!(startup_init(true, None, false), StartupInit::Default);
         assert_eq!(
-            startup_init(true, Some(Ok(doc())), false, false),
+            startup_init(true, Some(Ok(doc())), false),
             StartupInit::Session(doc())
         );
-        // Off, `--session` and `-e` each leave the last session alone.
+        // Off, and `-e`, leave the last session alone.
         assert_eq!(
-            startup_init(false, Some(Ok(doc())), false, false),
+            startup_init(false, Some(Ok(doc())), false),
             StartupInit::Default
         );
-        assert_eq!(startup_init(true, bad(), true, false), StartupInit::Default);
         assert_eq!(
-            startup_init(true, Some(Ok(doc())), false, true),
+            startup_init(true, Some(Ok(doc())), true),
             StartupInit::Default
         );
     }

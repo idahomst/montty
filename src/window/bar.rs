@@ -403,8 +403,8 @@ impl Window {
     }
 
     /// Whether the window can be resized from its edges now.
-    fn edges_resizable(&self, maximized: bool) -> bool {
-        !maximized && self.window.fullscreen().is_none()
+    fn edges_resizable(&self) -> bool {
+        !self.maximized && self.window.fullscreen().is_none()
     }
 
     /// The bar item the pointer is over (`None` in the edge zone, below the bar,
@@ -414,7 +414,7 @@ impl Window {
         if !self.mouse.inside() || pos.1 >= bar.height || self.modal_open() {
             return None;
         }
-        let resizable = self.edges_resizable(self.maximized);
+        let resizable = self.edges_resizable();
         if window_edge(self.size, pos, self.edge_border(), resizable).is_some() {
             return None;
         }
@@ -433,7 +433,7 @@ impl Window {
     /// the panes don't handle it.
     pub(super) fn bar_pointer_moved(&mut self) -> bool {
         let pos = self.mouse.pos();
-        let resizable = self.edges_resizable(self.maximized);
+        let resizable = self.edges_resizable();
         if let Some(dir) = window_edge(self.size, pos, self.edge_border(), resizable) {
             self.set_hover(None);
             self.set_cursor_icon(edge_icon(dir));
@@ -459,7 +459,7 @@ impl Window {
     pub(super) fn bar_press(&mut self, button: MouseButton) -> bool {
         let pos = self.mouse.pos();
         if button == MouseButton::Left {
-            let resizable = self.edges_resizable(self.maximized);
+            let resizable = self.edges_resizable();
             if let Some(dir) = window_edge(self.size, pos, self.edge_border(), resizable) {
                 self.mouse.clicks.clear();
                 if let Err(e) = self.window.drag_resize_window(dir) {

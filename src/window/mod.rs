@@ -759,7 +759,7 @@ impl Window {
             fonts,
             ui_font: font.key,
             ui_metrics: font.metrics,
-            profile_arg: profile_arg.clone(),
+            profile_arg,
             pane_profiles: HashMap::from([(id, first)]),
             fonts_reported: ReportedFonts::default(),
             store,
@@ -877,13 +877,13 @@ impl Window {
     }
 
     /// Returns false when the window should close.
-    pub fn handle_window_event(&mut self, ev: WindowEvent, el: &ActiveEventLoop) -> bool {
-        let keep = self.on_window_event(ev, el);
+    pub fn handle_window_event(&mut self, ev: WindowEvent) -> bool {
+        let keep = self.on_window_event(ev);
         self.refresh_looking();
         keep
     }
 
-    fn on_window_event(&mut self, ev: WindowEvent, _el: &ActiveEventLoop) -> bool {
+    fn on_window_event(&mut self, ev: WindowEvent) -> bool {
         self.ensure_current();
         match ev {
             // Asks first when a pane runs a process (also while another
