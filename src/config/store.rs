@@ -125,6 +125,13 @@ fn scheme_key_line(src: &str) -> Option<usize> {
         .map(|i| i + 1)
 }
 
+/// A config dir's files after a load: the stems seen, parsed or not (a file that went bad
+/// keeps its last good version), and the ones that parsed.
+struct DirLoad<T> {
+    seen: Vec<String>,
+    parsed: Vec<(String, T)>,
+}
+
 impl Store {
     /// Loads the config directory, writing `profiles/default.toml` first when `profiles/`
     /// has no profile. Never fails: problems come back as errors and the store runs on
@@ -273,27 +280,42 @@ impl Store {
         }
     }
 
-    fn load_schemes(&mut self, errors: &mut Vec<ConfigError>) {
-        let rel_dir = Path::new("schemes");
-        match list_files(&self.dir.join(rel_dir), "json") {
-            Ok(files) => {
-                let mut seen = Vec::new();
-                for (stem, path) in files {
-                    let rel = rel_dir.join(path.file_name().unwrap_or_default());
-                    match self.read(&path) {
-                        Ok(src) => match Scheme::parse(&src, &rel) {
-                            Ok(s) => {
-                                self.user_schemes.insert(stem.clone(), s);
-                            }
-                            Err(e) => errors.push(e),
-                        },
-                        Err(e) => errors.push(io_error(&rel, &e)),
-                    }
-                    seen.push(stem);
-                }
-                self.user_schemes.retain(|k, _| seen.contains(k));
+    /// Every `*.<ext>` file in `sub`, read and parsed (see `DirLoad`). None when the dir
+    /// can't be listed; each failure is pushed to `errors`.
+    fn load_dir<T>(
+        &mut self,
+        sub: &str,
+        ext: &str,
+        errors: &mut Vec<ConfigError>,
+        parse: impl Fn(&str, &Path) -> Result<T, ConfigError>,
+    ) -> Option<DirLoad<T>> {
+        let rel_dir = Path::new(sub);
+        let files = match list_files(&self.dir.join(rel_dir), ext) {
+            Ok(files) => files,
+            Err(e) => {
+                errors.push(io_error(rel_dir, &e));
+                return None;
             }
-            Err(e) => errors.push(io_error(rel_dir, &e)),
+        };
+        let (mut seen, mut parsed) = (Vec::new(), Vec::new());
+        for (stem, path) in files {
+            let rel = rel_dir.join(path.file_name().unwrap_or_default());
+            match self.read(&path) {
+                Ok(src) => match parse(&src, &rel) {
+                    Ok(t) => parsed.push((stem.clone(), t)),
+                    Err(e) => errors.push(e),
+                },
+                Err(e) => errors.push(io_error(&rel, &e)),
+            }
+            seen.push(stem);
+        }
+        Some(DirLoad { seen, parsed })
+    }
+
+    fn load_schemes(&mut self, errors: &mut Vec<ConfigError>) {
+        if let Some(d) = self.load_dir("schemes", "json", errors, Scheme::parse) {
+            self.user_schemes.extend(d.parsed);
+            self.user_schemes.retain(|k, _| d.seen.contains(k));
         }
         self.schemes = builtin_schemes()
             .into_iter()
@@ -303,33 +325,18 @@ impl Store {
     }
 
     fn load_profiles(&mut self, errors: &mut Vec<ConfigError>) {
-        let rel_dir = Path::new("profiles");
-        match list_files(&self.dir.join(rel_dir), "toml") {
-            Ok(files) => {
-                let mut seen = Vec::new();
-                for (stem, path) in files {
-                    let rel = rel_dir.join(path.file_name().unwrap_or_default());
-                    match self.read(&path) {
-                        Ok(src) => match Profile::parse(&src, &rel, self.home.as_deref()) {
-                            Ok(profile) => {
-                                let scheme_line = scheme_key_line(&src);
-                                self.profiles.insert(
-                                    stem.clone(),
-                                    ProfileEntry {
-                                        profile,
-                                        scheme_line,
-                                    },
-                                );
-                            }
-                            Err(e) => errors.push(e),
-                        },
-                        Err(e) => errors.push(io_error(&rel, &e)),
-                    }
-                    seen.push(stem);
-                }
-                self.profiles.retain(|k, _| seen.contains(k));
-            }
-            Err(e) => errors.push(io_error(rel_dir, &e)),
+        let home = self.home.clone();
+        let parse = |src: &str, rel: &Path| {
+            let profile = Profile::parse(src, rel, home.as_deref())?;
+            let scheme_line = scheme_key_line(src);
+            Ok(ProfileEntry {
+                profile,
+                scheme_line,
+            })
+        };
+        if let Some(d) = self.load_dir("profiles", "toml", errors, parse) {
+            self.profiles.extend(d.parsed);
+            self.profiles.retain(|k, _| d.seen.contains(k));
         }
     }
 
