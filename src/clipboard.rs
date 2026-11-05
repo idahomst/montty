@@ -183,28 +183,32 @@ fn x11() -> Result<System, Box<dyn std::error::Error + Send + Sync>> {
     })
 }
 
-/// The clipboards of the window's display: Wayland's, else X11's.
+/// The clipboards of the window's display: Wayland's, else X11's. Both run on a
+/// worker thread: a hung selection owner would otherwise block the UI thread for
+/// copypasta's own timeout (3 s on X11).
 pub fn system_clipboards(display: RawDisplayHandle) -> Box<dyn Clipboards> {
-    if let RawDisplayHandle::Wayland(h) = display {
+    let system = if let RawDisplayHandle::Wayland(h) = display {
         // SAFETY: winit's display pointer stays valid while the window (which owns
         // these clipboards) lives: dropping `Threaded` waits (up to `LOAD_TIMEOUT`) for
         // the worker to drop them, which joins smithay-clipboard's thread.
         let (primary, clipboard) =
             unsafe { wayland_clipboard::create_clipboards_from_external(h.display.as_ptr()) };
-        let system = System {
+        System {
             clipboard: Box::new(clipboard),
             primary: Box::new(primary),
             reported: false,
-        };
-        return Box::new(Threaded::spawn(Box::new(system), LOAD_TIMEOUT));
-    }
-    match x11() {
-        Ok(s) => Box::new(s),
-        Err(e) => {
-            eprintln!("montty: clipboard: {e}");
-            Box::new(MemClipboards::default())
         }
-    }
+    } else {
+        // X11's contexts open their own connections, so they don't depend on winit's.
+        match x11() {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("montty: clipboard: {e}");
+                return Box::new(MemClipboards::default());
+            }
+        }
+    };
+    Box::new(Threaded::spawn(Box::new(system), LOAD_TIMEOUT))
 }
 
 #[cfg(test)]
