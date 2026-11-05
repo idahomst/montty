@@ -462,18 +462,16 @@ pub(super) fn paint_menu(menu: &Menu, bm: &BarMetrics, stroke: i32) -> BarPaint 
         .extend(framed(r, stroke, theme::PANEL_BG, theme::PANEL_BORDER));
     let rows: Vec<Rect> = menu.item_rects(bm).into_iter().map(shift).collect();
     if let Some(row) = menu.selected().and_then(|i| rows.get(i)) {
-        // The row within the border.
-        let top = row.y.max(inner.y);
-        let bottom = (row.y + row.h).min(inner.y + inner.h);
-        out.under.push(RectInstance {
-            rect: Rect {
-                x: inner.x,
-                y: top,
-                w: inner.w,
-                h: (bottom - top).max(0),
-            },
-            color: theme::HOVER,
-        });
+        // The row's full width within the border.
+        let full = Rect {
+            x: inner.x,
+            w: inner.w,
+            ..*row
+        };
+        if let Some(rect) = full.intersect(inner) {
+            let color = theme::HOVER;
+            out.under.push(RectInstance { rect, color });
+        }
     }
     for (item, row) in menu.items.iter().zip(&rows) {
         if item.action == MenuAction::Separator {

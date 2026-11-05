@@ -512,17 +512,7 @@ pub(super) fn paint_overlay(
                 }
                 OverlayTarget::Close => theme::CLOSE_HOVER,
             };
-            let x0 = rect.x.max(inner.x);
-            let x1 = (rect.x + rect.w).min(inner.x + inner.w);
-            let y0 = rect.y.max(inner.y);
-            let y1 = (rect.y + rect.h).min(inner.y + inner.h);
-            if x1 > x0 && y1 > y0 {
-                let within = Rect {
-                    x: x0,
-                    y: y0,
-                    w: x1 - x0,
-                    h: y1 - y0,
-                };
+            if let Some(within) = rect.intersect(inner) {
                 out.push(fill(within, color));
             }
         }
