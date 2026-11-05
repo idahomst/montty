@@ -207,18 +207,12 @@ impl Profile {
         };
 
         let mut p = Profile::default();
-        if let Some(n) = raw.name {
-            p.name = n;
-        }
-        if let Some(f) = raw.font {
-            p.font_family = f;
-        }
+        p.name = raw.name.unwrap_or(p.name);
+        p.font_family = raw.font.unwrap_or(p.font_family);
         if let Some(s) = &raw.font_size {
             p.font_size = range(s, "font_size", 4.0, 200.0)?;
         }
-        if let Some(s) = raw.scheme {
-            p.scheme = s;
-        }
+        p.scheme = raw.scheme.unwrap_or(p.scheme);
         if let Some(c) = &raw.colors {
             let o = &mut p.colors;
             for (field, key, slot) in [
@@ -256,9 +250,7 @@ impl Profile {
                 o.palette = Some(pal);
             }
         }
-        if let Some(b) = raw.bold_is_bright {
-            p.bold_is_bright = b;
-        }
+        p.bold_is_bright = raw.bold_is_bright.unwrap_or(p.bold_is_bright);
         if let Some(o) = &raw.opacity {
             p.opacity = range(o, "opacity", 0.0, 1.0)?;
         }
@@ -283,13 +275,9 @@ impl Profile {
                 }
             };
         }
-        if let Some(b) = raw.cursor_blink {
-            p.cursor_blink = b;
-        }
+        p.cursor_blink = raw.cursor_blink.unwrap_or(p.cursor_blink);
         p.shell = raw.shell;
-        if let Some(b) = raw.login_shell {
-            p.login_shell = b;
-        }
+        p.login_shell = raw.login_shell.unwrap_or(p.login_shell);
         if let Some(c) = raw.command {
             if c.get_ref().iter().any(|a| a.is_empty()) {
                 return Err(err(
