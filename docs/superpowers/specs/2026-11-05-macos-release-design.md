@@ -29,7 +29,8 @@ throughout.
 ## 1. Mac-style shortcuts and quitting
 
 **Default bindings on macOS** replace Ctrl+Shift with Cmd (`Super` in montty's key syntax), following Terminal.app and
-iTerm2 where they agree. Ctrl stays free for the shell. Linux defaults are unchanged.
+iTerm2 where they agree. Ctrl stays free for the shell. Linux defaults are unchanged. On macOS, key names show as
+`Cmd` and `Option` (and parse that way too); the `docs/config.md` table gets a Linux column and a macOS column.
 
 | Action | macOS default |
 |---|---|
@@ -58,8 +59,9 @@ iTerm2 where they agree. Ctrl stays free for the shell. Linux defaults are uncha
 **Links:** Ctrl+click opens a link on Linux. On macOS it becomes Cmd+click, since Ctrl+click is a right click there.
 The hover hint follows the same modifier.
 
-**The new `quit` action** closes every window at once. One confirmation lists running processes across all windows,
-reusing the existing close-confirm logic and its `confirm_close_window` setting. The session autosave runs as it
+**The new `quit` action** closes every window at once. It asks only when a process is running somewhere: one
+confirmation counts them across all windows, as Terminal.app does (`confirm_close_window`'s "several panes" prompt
+is for closing one window). It reuses the existing confirm prompt. The session autosave runs as it
 does when the last window closes. The action is unbound on Linux, but users can bind it.
 
 **The app menu's Quit, Cmd+Q and the Dock's Quit** all send `terminate:`, and AppKit would end the process with no
