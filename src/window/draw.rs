@@ -1,6 +1,7 @@
 //! Frame drawing: the top bar, the panes, the tiling chrome, the pane hover
 //! overlay, then an open modal on top.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use alacritty_terminal::grid::Dimensions;
@@ -14,6 +15,7 @@ use super::pane_drag::{PaneDrag, paint_drop_target};
 use super::sizes::{size_label_rect, size_text};
 use super::{Window, scrollbar_visible};
 use crate::config::GlobalConfig;
+use crate::config::store::Resolved;
 use crate::layout::{Divider, PaneId, Rect};
 use crate::render::image;
 use crate::render::{RectInstance, ShapeInstance};
@@ -59,21 +61,23 @@ impl Window {
             let focused_id = self.tabs.active().focused;
             let area = self.area();
             let layout = self.tabs.active().tree.layout(area);
-            let translucent = any_translucent(&layout, |id| {
-                self.panes.contains_key(&id) && self.pane_profile(id).profile.opacity < 1.0
-            });
+            // Each visible pane's profile, looked up once per frame.
+            let visible: Vec<(PaneId, Rect, Arc<Resolved>)> = (layout.iter())
+                .filter(|(id, _)| self.panes.contains_key(id))
+                .map(|&(id, rect)| (id, rect, self.pane_profile(id)))
+                .collect();
+            let translucent = visible.iter().any(|(_, _, p)| p.profile.opacity < 1.0);
             // An opaque window's background is the focused pane's; other panes fill their
             // own. A translucent window clears to transparent and every pane fills its own.
-            let clear_bg = self.pane_profile(focused_id).palette.bg;
+            let clear_bg = match visible.iter().find(|(id, _, _)| *id == focused_id) {
+                Some((_, _, p)) => p.palette.bg,
+                None => self.pane_profile(focused_id).palette.bg,
+            };
             self.renderer
                 .begin_frame(frame_clear(translucent, clear_bg));
             self.draw_bar();
-            for &(id, rect) in &layout {
-                if !self.panes.contains_key(&id) {
-                    continue;
-                }
+            for (id, rect, profile) in visible {
                 let font = self.pane_font(id);
-                let profile = self.pane_profile(id);
                 let palette = &profile.palette;
                 let Some(pane) = self.panes.get(&id) else {
                     continue;
@@ -313,15 +317,6 @@ impl Window {
         let p = paint_toast(t, w, h, &self.bar_metrics(), self.chrome_stroke());
         self.draw_paint(&p);
     }
-}
-
-/// Whether the frame needs a transparent clear: some visible pane in `layout` (the active
-/// tab's, so a maximized pane hides the others) is translucent per `needs_clear`.
-pub(super) fn any_translucent(
-    layout: &[(PaneId, Rect)],
-    needs_clear: impl FnMut(PaneId) -> bool,
-) -> bool {
-    layout.iter().map(|&(id, _)| id).any(needs_clear)
 }
 
 /// The frame's clear color: transparent when any visible pane is translucent (each
@@ -574,21 +569,6 @@ mod tests {
         assert_eq!(frame_clear(true, bg), [0.0; 4]);
         let v = f32::from(0x1e_u8) / 255.0;
         assert_eq!(frame_clear(false, bg), [v, v, v, 1.0]);
-    }
-
-    #[test]
-    fn any_translucent_counts_visible_panes_only() {
-        let mut t = SplitTree::new(1);
-        t.split(1, Orientation::Horizontal, 2);
-        let glass = |id: PaneId| id == 2;
-        assert!(any_translucent(&t.layout(AREA), glass));
-        assert!(!any_translucent(&t.layout(AREA), |_| false));
-        // Pane 1 maximized: the translucent pane 2 is hidden.
-        t.toggle_maximize(1);
-        assert!(!any_translucent(&t.layout(AREA), glass));
-        t.toggle_maximize(1);
-        t.toggle_maximize(2);
-        assert!(any_translucent(&t.layout(AREA), glass));
     }
 
     #[test]
