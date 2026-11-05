@@ -53,158 +53,184 @@ impl ChromeColors {
     }
 }
 
+/// What every pane of a frame shares.
+struct PaneFrame {
+    began: Instant,
+    focused_id: PaneId,
+    translucent: bool,
+    clear_bg: Rgb,
+}
+
 impl Window {
     pub fn redraw(&mut self) {
         // The frame cadence counts from here, not from after the swap.
         let began = Instant::now();
         if self.size.width > 0 && self.size.height > 0 && self.ensure_current() {
-            let focused_id = self.tabs.active().focused;
-            let area = self.area();
-            let layout = self.tabs.active().tree.layout(area);
-            // Each visible pane's profile, looked up once per frame.
-            let visible: Vec<(PaneId, Rect, Arc<Resolved>)> = (layout.iter())
-                .filter(|(id, _)| self.panes.contains_key(id))
-                .map(|&(id, rect)| (id, rect, self.pane_profile(id)))
-                .collect();
-            let translucent = visible.iter().any(|(_, _, p)| p.profile.opacity < 1.0);
-            // An opaque window's background is the focused pane's; other panes fill their
-            // own. A translucent window clears to transparent and every pane fills its own.
-            let clear_bg = match visible.iter().find(|(id, _, _)| *id == focused_id) {
-                Some((_, _, p)) => p.palette.bg,
-                None => self.pane_profile(focused_id).palette.bg,
-            };
-            self.renderer
-                .begin_frame(frame_clear(translucent, clear_bg));
-            self.draw_bar();
-            for (id, rect, profile) in visible {
-                let font = self.pane_font(id);
-                let palette = &profile.palette;
-                let Some(pane) = self.panes.get(&id) else {
-                    continue;
-                };
-                let (lines, history) = {
-                    let term = pane.term.lock();
-                    let bright = profile.profile.bold_is_bright;
-                    let link = (self.links.hover.as_ref())
-                        .filter(|(pane, _)| *pane == id)
-                        .map(|(_, l)| &l.range);
-                    // The find pane's visible matches, found under this same lock.
-                    let find = self.find.as_mut().filter(|f| f.pane == id);
-                    let (matches, current) = match find {
-                        Some(f) => (
-                            (f.regex.as_mut())
-                                .map(|re| visible_matches(&term, re))
-                                .unwrap_or_default(),
-                            f.current.clone(),
-                        ),
-                        None => (Vec::new(), None),
-                    };
-                    let hl = Highlights {
-                        matches: &matches,
-                        current: current.as_ref(),
-                        link,
-                    };
-                    self.snapshot.capture(&term, palette, bright, &hl);
-                    (term.screen_lines(), term.grid().history_size())
-                };
-                // The effective default bg (an OSC 11 override, else the palette's) at the
-                // profile's opacity.
-                let bg = self.snapshot.bg;
-                let opacity = profile.profile.opacity;
-                if translucent || bg != clear_bg {
-                    let mut color = theme::from_rgb(bg);
-                    color[3] = opacity;
-                    self.renderer.draw_rects(&[RectInstance { rect, color }]);
-                }
-                // Then its background image, if loaded, at the image's opacity.
-                let image = (profile.profile.background_image.as_ref())
-                    .and_then(|img| Some((img, self.images.texture(&img.path)?)));
-                if let Some((img, tex)) = image
-                    && let Some((dest, uv)) = image::fit_rect(img.fit, (tex.w, tex.h), rect)
-                {
-                    let repeat = image::repeats(img.fit);
-                    self.renderer.draw_image(tex, dest, uv, img.opacity, repeat);
-                }
-                // Default-bg cells of a translucent pane let its bg rect show through, and
-                // those over an image let the image show.
-                let default_bg_alpha = if opacity < 1.0 || image.is_some() {
-                    0
-                } else {
-                    255
-                };
-                self.renderer.set_cursor_color(palette.cursor);
-                let Some(fonts) = self.fonts.by_key(font.key) else {
-                    continue;
-                };
-                // Unfocused panes (and every pane of an unfocused window) get a hollow cursor.
-                let focused = self.window_focused && id == focused_id;
-                // Only the focused pane blinks; the hidden phase draws no cursor.
-                if focused {
-                    self.blink_on = self.snapshot.blinking;
-                    self.blink_shown = !self.blink_on || self.blink.visible(began);
-                    if !self.blink_shown {
-                        self.snapshot.cursor = None;
-                    }
-                }
-                self.renderer.draw_pane(
-                    rect,
-                    rect.inset(font.padding),
-                    &self.snapshot,
-                    fonts,
-                    &font.metrics,
-                    focused,
-                    default_bg_alpha,
-                );
-                let last_scroll = self.scrolled.get(&id).copied();
-                if scrollbar_visible(self.snapshot.display_offset, last_scroll, began)
-                    && let Some(thumb) = scrollbar_thumb(
-                        rect,
-                        lines,
-                        history,
-                        self.snapshot.display_offset,
-                        self.scale,
-                    )
-                {
-                    let mut color = theme::TEXT_DIM;
-                    color[3] = 0.6;
-                    self.renderer
-                        .draw_rects(&[RectInstance { rect: thumb, color }]);
-                }
-                // The bell's flash over the whole pane.
-                if self.bell.is_some_and(|(b, _)| b == id) {
-                    let mut color = theme::TEXT;
-                    color[3] = 0.25;
-                    self.renderer.draw_rects(&[RectInstance { rect, color }]);
-                }
-            }
-            let colors = ChromeColors::of(self.store.global());
-            let dividers = self.tabs.active().tree.dividers(area);
-            let rects = chrome(&layout, &dividers, focused_id, &colors);
-            self.renderer.draw_rects(&rects);
-            if let Some(PaneDrag::Dragging { over: Some(t), .. }) = self.mouse.pane_drag
-                && let Some(&(_, rect)) = layout.iter().find(|&&(id, _)| id == t)
-            {
-                let rects = paint_drop_target(rect, self.chrome_stroke());
-                self.renderer.draw_rects(&rects);
-            }
-            self.draw_pane_dots(&layout);
-            self.draw_find();
-            self.draw_overlay();
-            self.draw_size_labels();
-            self.draw_link_label();
-            self.draw_mark_hover();
-            self.draw_toast();
-            // Last, over everything.
-            self.draw_modal();
-            self.window.pre_present_notify();
-            if let Err(e) = self.gl_surface.swap_buffers(&self.gl_context) {
-                eprintln!("montty: swap_buffers: {e}");
-            }
+            self.draw_frame(began);
         }
         self.scheduler.frame_drawn(began);
         if std::mem::take(&mut self.resize_redraw) {
             self.schedule();
         }
+    }
+
+    fn draw_frame(&mut self, began: Instant) {
+        let focused_id = self.tabs.active().focused;
+        let area = self.area();
+        let layout = self.tabs.active().tree.layout(area);
+        // Each visible pane's profile, looked up once per frame.
+        let visible: Vec<(PaneId, Rect, Arc<Resolved>)> = (layout.iter())
+            .filter(|(id, _)| self.panes.contains_key(id))
+            .map(|&(id, rect)| (id, rect, self.pane_profile(id)))
+            .collect();
+        let translucent = visible.iter().any(|(_, _, p)| p.profile.opacity < 1.0);
+        // An opaque window's background is the focused pane's; other panes fill their
+        // own. A translucent window clears to transparent and every pane fills its own.
+        let clear_bg = match visible.iter().find(|(id, _, _)| *id == focused_id) {
+            Some((_, _, p)) => p.palette.bg,
+            None => self.pane_profile(focused_id).palette.bg,
+        };
+        self.renderer
+            .begin_frame(frame_clear(translucent, clear_bg));
+        self.draw_bar();
+        let frame = PaneFrame {
+            began,
+            focused_id,
+            translucent,
+            clear_bg,
+        };
+        for (id, rect, profile) in visible {
+            self.draw_one_pane(id, rect, &profile, &frame);
+        }
+        let colors = ChromeColors::of(self.store.global());
+        let dividers = self.tabs.active().tree.dividers(area);
+        let rects = chrome(&layout, &dividers, focused_id, &colors);
+        self.renderer.draw_rects(&rects);
+        if let Some(PaneDrag::Dragging { over: Some(t), .. }) = self.mouse.pane_drag
+            && let Some(&(_, rect)) = layout.iter().find(|&&(id, _)| id == t)
+        {
+            let rects = paint_drop_target(rect, self.chrome_stroke());
+            self.renderer.draw_rects(&rects);
+        }
+        self.draw_pane_dots(&layout);
+        self.draw_find();
+        self.draw_overlay();
+        self.draw_size_labels();
+        self.draw_link_label();
+        self.draw_mark_hover();
+        self.draw_toast();
+        // Last, over everything.
+        self.draw_modal();
+        self.window.pre_present_notify();
+        if let Err(e) = self.gl_surface.swap_buffers(&self.gl_context) {
+            eprintln!("montty: swap_buffers: {e}");
+        }
+    }
+
+    /// Pane `id` at `rect`: its background, image, cells, scrollbar and bell flash.
+    fn draw_one_pane(&mut self, id: PaneId, rect: Rect, profile: &Resolved, frame: &PaneFrame) {
+        let font = self.pane_font(id);
+        let palette = &profile.palette;
+        let Some((lines, history)) = self.capture_snapshot(id, profile) else {
+            return;
+        };
+        // The effective default bg (an OSC 11 override, else the palette's) at the
+        // profile's opacity.
+        let bg = self.snapshot.bg;
+        let opacity = profile.profile.opacity;
+        if frame.translucent || bg != frame.clear_bg {
+            let mut color = theme::from_rgb(bg);
+            color[3] = opacity;
+            self.renderer.draw_rects(&[RectInstance { rect, color }]);
+        }
+        // Then its background image, if loaded, at the image's opacity.
+        let image = (profile.profile.background_image.as_ref())
+            .and_then(|img| Some((img, self.images.texture(&img.path)?)));
+        if let Some((img, tex)) = image
+            && let Some((dest, uv)) = image::fit_rect(img.fit, (tex.w, tex.h), rect)
+        {
+            let repeat = image::repeats(img.fit);
+            self.renderer.draw_image(tex, dest, uv, img.opacity, repeat);
+        }
+        // Default-bg cells of a translucent pane let its bg rect show through, and
+        // those over an image let the image show.
+        let default_bg_alpha = if opacity < 1.0 || image.is_some() {
+            0
+        } else {
+            255
+        };
+        self.renderer.set_cursor_color(palette.cursor);
+        let Some(fonts) = self.fonts.by_key(font.key) else {
+            return;
+        };
+        // Unfocused panes (and every pane of an unfocused window) get a hollow cursor.
+        let focused = self.window_focused && id == frame.focused_id;
+        // Only the focused pane blinks; the hidden phase draws no cursor.
+        if focused {
+            self.blink_on = self.snapshot.blinking;
+            self.blink_shown = !self.blink_on || self.blink.visible(frame.began);
+            if !self.blink_shown {
+                self.snapshot.cursor = None;
+            }
+        }
+        self.renderer.draw_pane(
+            rect,
+            rect.inset(font.padding),
+            &self.snapshot,
+            fonts,
+            &font.metrics,
+            focused,
+            default_bg_alpha,
+        );
+        let last_scroll = self.scrolled.get(&id).copied();
+        if scrollbar_visible(self.snapshot.display_offset, last_scroll, frame.began)
+            && let Some(thumb) = scrollbar_thumb(
+                rect,
+                lines,
+                history,
+                self.snapshot.display_offset,
+                self.scale,
+            )
+        {
+            let mut color = theme::TEXT_DIM;
+            color[3] = 0.6;
+            self.renderer
+                .draw_rects(&[RectInstance { rect: thumb, color }]);
+        }
+        // The bell's flash over the whole pane.
+        if self.bell.is_some_and(|(b, _)| b == id) {
+            let mut color = theme::TEXT;
+            color[3] = 0.25;
+            self.renderer.draw_rects(&[RectInstance { rect, color }]);
+        }
+    }
+
+    /// Copy pane `id`'s visible cells into `self.snapshot` under one brief lock, with the
+    /// hovered link and the find matches; returns its (screen lines, history size).
+    fn capture_snapshot(&mut self, id: PaneId, profile: &Resolved) -> Option<(usize, usize)> {
+        let term = self.panes.get(&id)?.term.lock();
+        let link = (self.links.hover.as_ref())
+            .filter(|(pane, _)| *pane == id)
+            .map(|(_, l)| &l.range);
+        // The find pane's visible matches, found under this same lock.
+        let find = self.find.as_mut().filter(|f| f.pane == id);
+        let (matches, current) = match find {
+            Some(f) => (
+                (f.regex.as_mut())
+                    .map(|re| visible_matches(&term, re))
+                    .unwrap_or_default(),
+                f.current.clone(),
+            ),
+            None => (Vec::new(), None),
+        };
+        let hl = Highlights {
+            matches: &matches,
+            current: current.as_ref(),
+            link,
+        };
+        let bright = profile.profile.bold_is_bright;
+        self.snapshot.capture(&term, &profile.palette, bright, &hl);
+        Some((term.screen_lines(), term.grid().history_size()))
     }
 
     /// The hover overlay of the pane under the pointer (none while a modal
@@ -415,22 +441,9 @@ pub(super) fn chrome(
     if layout.len() > 1
         && let Some(&(_, r)) = layout.iter().find(|&&(id, _)| id == focused)
     {
+        // Not overlapping, so a translucent border color doesn't blend twice at the corners.
         let b = BORDER_PX.min(r.w).min(r.h);
-        let edges = [
-            Rect { h: b, ..r },
-            Rect {
-                y: r.y + r.h - b,
-                h: b,
-                ..r
-            },
-            Rect { w: b, ..r },
-            Rect {
-                x: r.x + r.w - b,
-                w: b,
-                ..r
-            },
-        ];
-        out.extend(edges.into_iter().map(|rect| RectInstance {
+        out.extend(border_rects(r, b).into_iter().map(|rect| RectInstance {
             rect,
             color: colors.border,
         }));
@@ -624,18 +637,19 @@ mod tests {
         border.sort_by_key(|r| (r.x, r.y, r.w, r.h));
         assert_eq!(
             border,
+            // Edges that don't overlap: the sides run between the top and bottom.
             vec![
-                Rect {
-                    x: 101,
-                    y: 0,
-                    w: 2,
-                    h: 101
-                },
                 Rect {
                     x: 101,
                     y: 0,
                     w: 100,
                     h: 2
+                },
+                Rect {
+                    x: 101,
+                    y: 2,
+                    w: 2,
+                    h: 97
                 },
                 Rect {
                     x: 101,
@@ -645,9 +659,9 @@ mod tests {
                 },
                 Rect {
                     x: 199,
-                    y: 0,
+                    y: 2,
                     w: 2,
-                    h: 101
+                    h: 97
                 },
             ]
         );
