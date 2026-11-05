@@ -539,13 +539,8 @@ mod tests {
                     assert_sane(&bar, width);
                     let tabs = tab_rects(&bar);
                     let b = BarMetrics::test();
-                    let available = bar
-                        .items
-                        .iter()
-                        .map(|i| i.rect.x)
-                        .min()
-                        .map_or(width, |x| x)
-                        - b.height;
+                    let available =
+                        bar.items.iter().map(|i| i.rect.x).min().unwrap_or(width) - b.height;
                     if n > 0 && available >= 3 * b.pad + b.cell_h + b.cell_w {
                         assert!(
                             tabs.iter().any(|(i, _)| *i == active),
