@@ -662,4 +662,46 @@ mod tests {
             .collect();
         assert_eq!(names, ["w.json"]);
     }
+
+    fn store_with(files: &[(&str, &str)]) -> TempDir {
+        let d = TempDir::new("session-read");
+        for (name, body) in files {
+            d.write(&format!("sessions/{name}.json"), body);
+        }
+        d
+    }
+
+    #[test]
+    fn read_session_reads_a_saved_file() {
+        let doc = parse(EXAMPLE, file()).unwrap();
+        let d = store_with(&[("ok", &to_json(&doc))]);
+        assert_eq!(read_session(Some(&d), "ok").unwrap(), doc);
+    }
+
+    #[test]
+    fn read_session_names_the_file_that_has_errors() {
+        let d = store_with(&[("bad", "{\n \"version\": 2 }")]);
+        let e = read_session(Some(&d), "bad").unwrap_err();
+        assert!(e.starts_with("sessions/bad.json:"), "{e}");
+    }
+
+    #[test]
+    fn read_session_reports_a_missing_file() {
+        let d = store_with(&[]);
+        let e = read_session(Some(&d), "missing").unwrap_err();
+        assert!(e.starts_with("sessions/missing.json: "), "{e}");
+    }
+
+    #[test]
+    fn read_session_rejects_an_invalid_name() {
+        let d = store_with(&[]);
+        let e = read_session(Some(&d), "a/b").unwrap_err();
+        assert!(e.starts_with("invalid session name: "), "{e}");
+    }
+
+    #[test]
+    fn read_session_without_a_config_dir_says_so() {
+        let e = read_session(None, "ok").unwrap_err();
+        assert!(e.contains("no config directory"), "{e}");
+    }
 }
