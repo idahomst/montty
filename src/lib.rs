@@ -4,6 +4,7 @@ pub mod clipboard;
 pub mod config;
 pub mod decoder;
 pub mod device_events;
+pub mod events;
 pub mod font;
 pub mod frame;
 pub mod input;

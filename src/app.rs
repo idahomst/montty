@@ -11,9 +11,9 @@ use winit::window::WindowId;
 
 use crate::cli::Args;
 use crate::config::{GlobalConfig, config_dir};
+use crate::events::UserEvent;
 use crate::session::{last_file, read_file, read_session};
 use crate::term::PaneId;
-use crate::term::pane::UserEvent;
 use crate::window::{StartupInit, Window, startup_init};
 use crate::windows::{AppRequest, WindowInit, Windows};
 

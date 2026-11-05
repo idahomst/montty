@@ -12,8 +12,8 @@ use winit::dpi::PhysicalSize;
 use super::{Window, resolved_stem_of, watcher_toast};
 use crate::config::watch::{config_watch_dirs, with_files};
 use crate::decoder::decode_in_helper;
+use crate::events::UserEvent;
 use crate::render::image::Rgba8;
-use crate::term::pane::UserEvent;
 use crate::ui::toast::{Toast, ToastSource};
 
 /// Images are downscaled to at most this, or to the largest monitor when that is larger.

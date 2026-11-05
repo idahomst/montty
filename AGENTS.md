@@ -28,7 +28,9 @@ Top-level modules (`src/`):
 - `windows.rs`: the collection of windows (`Windows<W>`) and the requests a window makes of the app (`AppRequest`: new window, open session).
 - `window/`: one OS window (see below).
 - `layout/`: pure data. `geom.rs` (rects, constants) and `tree.rs` (binary split tree: split, close, swap, resize, hit-test).
-- `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread, user events),
+- `events.rs`: `UserEvent` (what the PTY readers, config watcher and image decoders post to the UI thread) and
+  `EventSink`.
+- `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread),
   `snapshot.rs` (copy of the visible cells taken under a brief lock), `colors.rs`, `links.rs`, `grid_point.rs`.
   Signals: `osc_scan.rs` (cheap scanner for OSC 7501 / 9 / 777 / 133 in the PTY byte stream, which alacritty's parser
   drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner and sends each hit as `UserEvent::Signal`),

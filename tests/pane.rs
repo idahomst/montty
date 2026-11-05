@@ -8,7 +8,8 @@ use alacritty_terminal::event::{Event, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::TermMode;
-use montty::term::pane::{Pane, PaneOptions, UserEvent};
+use montty::events::UserEvent;
+use montty::term::pane::{Pane, PaneOptions};
 
 fn size(cols: u16, lines: u16) -> WindowSize {
     WindowSize {

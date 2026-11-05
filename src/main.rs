@@ -1,6 +1,6 @@
 use montty::app::App;
 use montty::cli;
-use montty::term::pane::UserEvent;
+use montty::events::UserEvent;
 use winit::event_loop::EventLoop;
 
 fn main() {
