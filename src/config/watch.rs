@@ -204,17 +204,24 @@ pub fn config_watch_dirs(dir: &Path) -> Vec<(PathBuf, Scope)> {
         let Some(parent) = target.parent().filter(|p| !covered.iter().any(|c| c == p)) else {
             continue;
         };
-        match out.iter_mut().find(|(d, _)| d == parent) {
-            Some((_, Scope::Only(targets))) => {
-                if !targets.contains(&target) {
-                    targets.push(target);
-                }
-            }
-            Some((_, Scope::All)) => {}
-            None => out.push((parent.to_path_buf(), Scope::Only(vec![target]))),
-        }
+        let parent = parent.to_path_buf();
+        watch_file(&mut out, parent, target);
     }
     out
+}
+
+/// Have `dirs` see events for `file` in `parent`: nothing to add under an `All` watch,
+/// else added to that dir's `Only` list, or a new `Only` entry.
+fn watch_file(dirs: &mut Vec<(PathBuf, Scope)>, parent: PathBuf, file: PathBuf) {
+    match dirs.iter_mut().find(|(d, _)| *d == parent) {
+        Some((_, Scope::All)) => {}
+        Some((_, Scope::Only(files))) => {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+        None => dirs.push((parent, Scope::Only(vec![file]))),
+    }
 }
 
 /// `dirs` (see `config_watch_dirs`) plus the dir of each of `files` (background images),
@@ -228,15 +235,8 @@ pub fn with_files(mut dirs: Vec<(PathBuf, Scope)>, files: &[PathBuf]) -> Vec<(Pa
             let Some(parent) = file.parent().filter(|p| p.is_dir()) else {
                 continue;
             };
-            match dirs.iter_mut().find(|(d, _)| d == parent) {
-                Some((_, Scope::All)) => {}
-                Some((_, Scope::Only(paths))) => {
-                    if !paths.contains(&file) {
-                        paths.push(file);
-                    }
-                }
-                None => dirs.push((parent.to_path_buf(), Scope::Only(vec![file]))),
-            }
+            let parent = parent.to_path_buf();
+            watch_file(&mut dirs, parent, file);
         }
     }
     dirs
