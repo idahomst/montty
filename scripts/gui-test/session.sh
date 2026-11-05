@@ -1,16 +1,23 @@
 #!/usr/bin/env bash
 # Run montty inside a nested X server (Xephyr), so GUI checks never touch the real desktop or ~/.config/montty.
-#
-# Usage, from the repo root:
-#   scripts/gui-test/session.sh start [montty args...]   start Xephyr (if not running) and montty on an empty config
-#   scripts/gui-test/session.sh restart [montty args...] restart montty only, with a fresh empty config
-#   scripts/gui-test/session.sh shot NAME                screenshot the nested display to $STATE/NAME.png
-#   scripts/gui-test/session.sh stop                     stop montty and Xephyr
-#
-# Environment: GUI_TEST_DISPLAY (default :5), GUI_TEST_SIZE (1280x800), GUI_TEST_DIR (state, default
-# ${TMPDIR:-/tmp}/montty-gui-test), MONTTY_BIN (target/release/montty).
-# Needs Xephyr; screenshots need xwd and ffmpeg. Processes are stopped by their recorded PIDs, never by name.
+# Usage: see usage() below, or run it without arguments.
 set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Run montty inside a nested X server (Xephyr), so GUI checks never touch the real desktop or ~/.config/montty.
+
+Usage, from the repo root:
+  scripts/gui-test/session.sh start [montty args...]   start Xephyr (if not running) and montty on an empty config
+  scripts/gui-test/session.sh restart [montty args...] restart montty only, with a fresh empty config
+  scripts/gui-test/session.sh shot NAME                screenshot the nested display to $STATE/NAME.png
+  scripts/gui-test/session.sh stop                     stop montty and Xephyr
+
+Environment: GUI_TEST_DISPLAY (default :5), GUI_TEST_SIZE (1280x800), GUI_TEST_DIR (state, default
+${TMPDIR:-/tmp}/montty-gui-test), MONTTY_BIN (target/release/montty).
+Needs Xephyr; screenshots need xwd and ffmpeg. Processes are stopped by their recorded PIDs, never by name.
+EOF
+}
 
 DISPLAY_NUM=${GUI_TEST_DISPLAY:-:5}
 SIZE=${GUI_TEST_SIZE:-1280x800}
@@ -74,7 +81,7 @@ stop)
     stop_pid "$STATE/xephyr.pid"
     ;;
 *)
-    sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+    usage
     exit 2
     ;;
 esac
