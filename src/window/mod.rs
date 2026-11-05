@@ -2340,9 +2340,17 @@ mod tests {
         let o = pane_options(&p, None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["top".into(), "-d1".into()]));
         assert!(o.runs_command);
-        // Defaults: $SHELL, block cursor without blink, 10 000 lines.
+        // Defaults: $SHELL (a login shell on macOS), block cursor without blink, 10 000 lines.
         let o = pane_options(&Profile::default(), None, None, None, None, true);
-        assert_eq!(o.command, Some(vec!["/bin/sh".into()]));
+        let shell: &[&str] = if cfg!(target_os = "macos") {
+            &["/bin/sh", "-l"]
+        } else {
+            &["/bin/sh"]
+        };
+        assert_eq!(
+            o.command,
+            Some(shell.iter().map(|s| s.to_string()).collect())
+        );
         assert_eq!(o.scrollback, 10_000);
         assert_eq!(
             (o.cursor.shape, o.cursor.blinking),
