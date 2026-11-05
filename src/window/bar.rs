@@ -14,7 +14,7 @@ use super::marks::{disc, level_color};
 use super::modal::{Modal, PromptPurpose, editing_label};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
-use crate::layout::{PaneId, Rect};
+use crate::layout::{PaneId, Rect, px_i32};
 use crate::render::{RectInstance, ShapeInstance};
 use crate::term::colors::Rgb;
 use crate::ui::confirm::CloseTarget;
@@ -25,13 +25,12 @@ use crate::ui::{DOUBLE_CLICK, edge_px};
 
 /// The pane area: the window below a bar `bar_h` px tall.
 pub(super) fn pane_area(size: PhysicalSize<u32>, bar_h: i32) -> Rect {
-    let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
     let bar_h = bar_h.max(0);
     Rect {
         x: 0,
         y: bar_h,
-        w: clamp(size.width),
-        h: (clamp(size.height) - bar_h).max(0),
+        w: px_i32(size.width),
+        h: (px_i32(size.height) - bar_h).max(0),
     }
 }
 
@@ -159,8 +158,13 @@ pub(super) fn window_edge(
     if !resizable {
         return None;
     }
-    let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
-    resize_edge(clamp(size.width), clamp(size.height), pos.0, pos.1, border)
+    resize_edge(
+        px_i32(size.width),
+        px_i32(size.height),
+        pos.0,
+        pos.1,
+        border,
+    )
 }
 
 /// The hover state for a pointer hit: `Drag` (empty bar) draws no hover.
@@ -317,7 +321,7 @@ impl Window {
         {
             *label = editing_label(field.text());
         }
-        let width = self.size.width.min(i32::MAX as u32) as i32;
+        let width = px_i32(self.size.width);
         let dots: Vec<bool> = marks.iter().map(Option::is_some).collect();
         layout(
             width,
@@ -350,8 +354,7 @@ impl Window {
 
     /// The window size in px, as i32.
     pub(super) fn size_px(&self) -> (i32, i32) {
-        let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
-        (clamp(self.size.width), clamp(self.size.height))
+        (px_i32(self.size.width), px_i32(self.size.height))
     }
 
     /// Icon strokes and chrome borders: `max(1, round(scale))` px.

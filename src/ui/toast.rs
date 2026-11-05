@@ -7,6 +7,7 @@ use super::text::{display_width, sanitize, truncate};
 use super::topbar::BarMetrics;
 use crate::config::ConfigError;
 use crate::layout::Rect;
+use crate::ui::modal_extent;
 
 /// How long a toast stays up.
 pub const TOAST_DURATION: Duration = Duration::from_secs(8);
@@ -117,7 +118,7 @@ impl Toast {
     /// tall and at most 90 % of the window wide (the text is then truncated).
     pub fn rect(&self, win_w: i32, win_h: i32, bm: &BarMetrics) -> Rect {
         let text_w = (display_width(&self.text) + display_width(&self.tail)) as i32 * bm.cell_w;
-        let w = (text_w + 2 * bm.pad).min(win_w * 9 / 10).max(0);
+        let w = modal_extent(text_w + 2 * bm.pad, win_w);
         let h = bm.cell_h + 2 * bm.pad;
         Rect {
             x: (win_w - w) / 2,

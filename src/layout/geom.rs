@@ -17,6 +17,11 @@ pub struct Rect {
     pub h: i32,
 }
 
+/// A window size in px (winit's u32) as the i32 the geometry uses, saturating.
+pub fn px_i32(v: u32) -> i32 {
+    v.min(i32::MAX as u32) as i32
+}
+
 impl Rect {
     pub fn contains(&self, px: i32, py: i32) -> bool {
         px >= self.x && px < self.x + self.w && py >= self.y && py < self.y + self.h

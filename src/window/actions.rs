@@ -15,7 +15,7 @@ use super::{
 use crate::clipboard::ClipKind;
 use crate::font::Metrics;
 use crate::input::bindings::Action;
-use crate::layout::{Direction, Orientation, PaneId, Rect, RemoveResult, SplitTree};
+use crate::layout::{Direction, Orientation, PaneId, Rect, RemoveResult, SplitTree, px_i32};
 use crate::term::pane::{Pane, next_pane_id};
 use crate::ui::confirm::CloseTarget;
 use crate::windows::AppRequest;
@@ -493,7 +493,7 @@ pub(super) fn resize_step(dir: Direction, m: &Metrics) -> i32 {
         Direction::Left | Direction::Right => m.cell_width,
         Direction::Up | Direction::Down => m.cell_height,
     };
-    px.min(i32::MAX as u32) as i32
+    px_i32(px)
 }
 
 #[cfg(test)]

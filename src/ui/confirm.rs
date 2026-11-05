@@ -6,6 +6,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::text::display_width;
 use super::topbar::BarMetrics;
 use crate::layout::{PaneId, Rect};
+use crate::ui::{centered, modal_extent};
 
 pub const CLOSE_LABEL: &str = "Close";
 pub const CANCEL_LABEL: &str = "Cancel";
@@ -81,14 +82,8 @@ impl Confirm {
         let text_w = display_width(&self.message) as i32 * bm.cell_w;
         let want_w = text_w.max(2 * bw + bm.pad) + 2 * m;
         let want_h = bm.cell_h + bh + 3 * m;
-        let w = want_w.min(win_w * 9 / 10).max(0);
-        let h = want_h.min(win_h * 9 / 10).max(0);
-        Rect {
-            x: ((win_w - w) / 2).max(0),
-            y: ((win_h - h) / 2).max(0),
-            w,
-            h,
-        }
+        let (w, h) = (modal_extent(want_w, win_w), modal_extent(want_h, win_h));
+        centered(w, h, win_w, win_h)
     }
 
     /// (Close, Cancel): Close in the bottom-right corner (the default, as on

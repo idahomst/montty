@@ -3,6 +3,7 @@
 use super::text::display_width;
 use super::topbar::BarMetrics;
 use crate::layout::Rect;
+use crate::ui::{centered, modal_extent};
 
 pub struct InfoPanel {
     pub title: String,
@@ -91,7 +92,7 @@ impl InfoPanel {
     pub fn rect(&self, win_w: i32, win_h: i32, bm: &BarMetrics) -> Rect {
         // Title row, a pad gap, then the body lines.
         let want_h = (self.lines.len() as i32 + 1) * bm.cell_h + 3 * bm.pad;
-        let h = want_h.min(win_h * 9 / 10).max(0);
+        let h = modal_extent(want_h, win_h);
         let scrolls = h < want_h;
         let marker = more_text(PanelRow::MoreBelow(self.lines.len())).filter(|_| scrolls);
         let cols = self
@@ -103,13 +104,7 @@ impl InfoPanel {
             .max()
             .unwrap_or(0) as i32;
         let want_w = cols * bm.cell_w + 2 * bm.pad;
-        let w = want_w.min(win_w * 9 / 10).max(0);
-        Rect {
-            x: ((win_w - w) / 2).max(0),
-            y: ((win_h - h) / 2).max(0),
-            w,
-            h,
-        }
+        centered(modal_extent(want_w, win_w), h, win_w, win_h)
     }
 }
 
