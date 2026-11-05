@@ -2,25 +2,26 @@
 
 ## From a release package
 
-Packages are attached to each [GitHub release](https://github.com/idahomst/montty/releases). They are for x86_64.
+Packages are attached to each [GitHub release](https://github.com/idahomst/montty/releases/latest). They are for x86_64;
+`<version>` below is the release's version.
 
 **Debian, Ubuntu and derivatives**
 
 ```bash
-sudo apt install ./montty_0.2.2_amd64.deb
+sudo apt install ./montty_<version>_amd64.deb
 ```
 
 **Arch, CachyOS and derivatives**
 
 ```bash
-sudo pacman -U montty-0.2.2-1-x86_64.pkg.tar.zst
+sudo pacman -U montty-<version>-1-x86_64.pkg.tar.zst
 ```
 
 **Tarball (any Linux)**
 
 ```bash
-tar xzf montty-0.2.2-x86_64-linux.tar.gz
-cd montty-0.2.2
+tar xzf montty-<version>-x86_64-linux.tar.gz
+cd montty-<version>
 mkdir -p ~/.local/bin ~/.local/share/icons ~/.local/share/applications
 cp bin/montty ~/.local/bin/
 cp -r assets/icon/hicolor ~/.local/share/icons/

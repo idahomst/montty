@@ -27,9 +27,9 @@ macOS and Windows are not supported yet.
 
 Download a package from the [latest release](https://github.com/idahomst/montty/releases/latest).
 
-- Debian / Ubuntu: `sudo apt install ./montty_0.2.2_amd64.deb`
-- Arch / CachyOS: `sudo pacman -U montty-0.2.2-1-x86_64.pkg.tar.zst`
-- Any Linux (x86_64): unpack `montty-0.2.2-x86_64-linux.tar.gz` and copy the files as described in
+- Debian / Ubuntu: `sudo apt install ./montty_<version>_amd64.deb`
+- Arch / CachyOS: `sudo pacman -U montty-<version>-1-x86_64.pkg.tar.zst`
+- Any Linux (x86_64): unpack `montty-<version>-x86_64-linux.tar.gz` and copy the files as described in
   [docs/install.md](docs/install.md).
 
 ### Build from source
@@ -62,41 +62,19 @@ The ≡ menu has `Edit config` (opens `config.toml` in `$VISUAL`/`$EDITOR` in a 
 
 ### Profiles
 
-A profile is how a pane looks and what it runs: font, color scheme, colors, cursor, opacity, padding, scrollback,
-shell, background image.
-
-- **First run:** montty writes `profiles/default.toml` with every setting at its default and a comment on each. Change
-  what you want and save; all panes using it restyle live.
-- **New profile:** `New profile…` in a pane's profile menu (below) asks for a name and copies the pane's profile to
-  `profiles/<name>.toml`, or copy a file yourself, e.g. to `profiles/work.toml`. The file name is the profile's id;
-  `name = "Work"` is what the menu shows. Every key is optional.
-
-  ```toml
-  name = "Work"
-  font = "JetBrains Mono"
-  font_size = 12
-  scheme = "solarized-dark"   # built-in: tango, linux, solarized-dark/-light, monokai, material, orchis, yaru, base16-twilight-dark
-  opacity = 0.9
-  ```
-
-- **Use it:** hover a pane and click the **Profile** button in its top-right overlay, then pick a profile; only that
-  pane changes and its shell keeps running. The same menu has `Edit profile "…"` for the pane's profile. A split starts with the profile of the pane it came from.
-- **Default:** new windows and tabs use `default_profile = "work"` from `config.toml`, or `montty --profile work`.
+A profile is how a pane looks and what it runs (font, color scheme, cursor, opacity, padding, scrollback, shell,
+background image), one file per profile in `profiles/`. On the first run montty writes `profiles/default.toml` with
+every setting and a comment on each. Hover a pane and click **Profile** in its overlay to switch that pane to another
+profile, edit its profile, or create a new one. See [Profiles](docs/config.md#profiles),
+[Choosing a profile for a pane](docs/config.md#choosing-a-profile-for-a-pane) and
+[Color schemes](docs/config.md#color-schemes).
 
 ### Sessions
 
-A session is a window's layout: its tabs, splits, each pane's profile and working directory. Shells start fresh when
-it opens; scrollback isn't saved.
-
-- **Save:** `Ctrl+Shift+S` (or `Save session…` in the ≡ menu), type a name, Enter. It goes to `sessions/<name>.json`;
-  saving under the same name again replaces it.
-- **Open:** `Ctrl+Shift+O` (or `Open session ▸` in the ≡ menu) and pick a name. A window that is still untouched (one
-  pane, nothing typed) turns into the session; otherwise it opens in a new window. From the command line:
-  `montty --session NAME`.
-- **Edit or delete:** sessions are readable JSON files; edit one in any editor (for example to set a pane's `command`),
-  or delete the file to drop it. The format is described in [docs/config.md](docs/config.md#the-session-file).
-- **Pick up where you left off:** with `restore_last_session = true` in `config.toml`, montty keeps your last window's
-  layout in `sessions/_last.json` and reopens it at the next start.
+A session is a window's layout: its tabs, splits, and each pane's profile and working directory (shells start fresh,
+scrollback isn't saved). Save one with `Ctrl+Shift+S`, open one with `Ctrl+Shift+O` or `montty --session NAME`, and
+set `restore_last_session = true` to reopen your last window at the next start. See
+[Sessions and windows](docs/config.md#sessions-and-windows).
 
 Other docs: [docs/design.md](docs/design.md) (how montty is built and why),
 [docs/bench.md](docs/bench.md) (performance measurements and the benchmark procedure).
