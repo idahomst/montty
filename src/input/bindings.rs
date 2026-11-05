@@ -38,67 +38,47 @@ impl KeyCombo {
     }
 }
 
-fn parse_named(name: &str) -> Option<NamedKey> {
+/// Named keys: config spelling (lowercase), key, display label. An alias is a later row for the
+/// same key: it parses but `named_label` finds the first row, so the label is never the alias.
+const NAMED: &[(&str, NamedKey, &str)] = {
     use NamedKey::*;
-    Some(match name {
-        "up" => ArrowUp,
-        "down" => ArrowDown,
-        "left" => ArrowLeft,
-        "right" => ArrowRight,
-        "pageup" | "page_up" => PageUp,
-        "pagedown" | "page_down" => PageDown,
-        "insert" => Insert,
-        "delete" => Delete,
-        "home" => Home,
-        "end" => End,
-        "tab" => Tab,
-        "escape" => Escape,
-        "f1" => F1,
-        "f2" => F2,
-        "f3" => F3,
-        "f4" => F4,
-        "f5" => F5,
-        "f6" => F6,
-        "f7" => F7,
-        "f8" => F8,
-        "f9" => F9,
-        "f10" => F10,
-        "f11" => F11,
-        "f12" => F12,
-        _ => return None,
-    })
+    &[
+        ("up", ArrowUp, "Up"),
+        ("down", ArrowDown, "Down"),
+        ("left", ArrowLeft, "Left"),
+        ("right", ArrowRight, "Right"),
+        ("pageup", PageUp, "PageUp"),
+        ("page_up", PageUp, "PageUp"),
+        ("pagedown", PageDown, "PageDown"),
+        ("page_down", PageDown, "PageDown"),
+        ("insert", Insert, "Insert"),
+        ("delete", Delete, "Delete"),
+        ("home", Home, "Home"),
+        ("end", End, "End"),
+        ("tab", Tab, "Tab"),
+        ("escape", Escape, "Escape"),
+        ("f1", F1, "F1"),
+        ("f2", F2, "F2"),
+        ("f3", F3, "F3"),
+        ("f4", F4, "F4"),
+        ("f5", F5, "F5"),
+        ("f6", F6, "F6"),
+        ("f7", F7, "F7"),
+        ("f8", F8, "F8"),
+        ("f9", F9, "F9"),
+        ("f10", F10, "F10"),
+        ("f11", F11, "F11"),
+        ("f12", F12, "F12"),
+    ]
+};
+
+fn parse_named(name: &str) -> Option<NamedKey> {
+    NAMED.iter().find(|r| r.0 == name).map(|r| r.1)
 }
 
 /// The display name for a named key; the inverse of `parse_named` (modulo aliases).
 fn named_label(key: NamedKey) -> Option<&'static str> {
-    use NamedKey::*;
-    Some(match key {
-        ArrowUp => "Up",
-        ArrowDown => "Down",
-        ArrowLeft => "Left",
-        ArrowRight => "Right",
-        PageUp => "PageUp",
-        PageDown => "PageDown",
-        Insert => "Insert",
-        Delete => "Delete",
-        Home => "Home",
-        End => "End",
-        Tab => "Tab",
-        Escape => "Escape",
-        F1 => "F1",
-        F2 => "F2",
-        F3 => "F3",
-        F4 => "F4",
-        F5 => "F5",
-        F6 => "F6",
-        F7 => "F7",
-        F8 => "F8",
-        F9 => "F9",
-        F10 => "F10",
-        F11 => "F11",
-        F12 => "F12",
-        _ => return None,
-    })
+    NAMED.iter().find(|r| r.1 == key).map(|r| r.2)
 }
 
 /// `'0'..='9'` for a digit-row key (by physical position).
