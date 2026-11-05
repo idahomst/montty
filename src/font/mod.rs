@@ -315,6 +315,7 @@ impl FontSet {
     }
 
     /// True if the fallback search for `ch` has already been done (hit or miss).
+    #[cfg(test)]
     pub fn is_cached(&self, ch: char) -> bool {
         self.fallback.contains_key(&ch)
     }

@@ -30,7 +30,7 @@ pub struct ShapeInstance {
 
 impl ShapeInstance {
     /// The whole pixels the stroke can touch, with one px for the antialiased edge.
-    pub fn bounds(&self) -> Rect {
+    pub(crate) fn bounds(&self) -> Rect {
         let (x0, y0, x1, y1) = match self.shape {
             Shape::Line { a, b } => (
                 a[0].min(b[0]),

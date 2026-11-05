@@ -47,6 +47,7 @@ impl EventSink for winit::event_loop::EventLoopProxy<UserEvent> {
     }
 }
 
+/// The integration tests (`tests/`) collect a pane's events through a channel.
 impl EventSink for Sender<UserEvent> {
     fn send(&self, ev: UserEvent) {
         let _ = Sender::send(self, ev);
@@ -258,6 +259,7 @@ impl Pane {
     }
 
     /// The shell's (or command's) process id.
+    #[cfg(test)]
     pub fn shell_pid(&self) -> u32 {
         self.shell_pid
     }
