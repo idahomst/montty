@@ -30,7 +30,28 @@ pub struct CellInstance {
     /// Glyph bitmap placement: left, top (relative to pen position / baseline).
     pub offset: [i16; 2],
     pub flags: u8,
-    pub _pad: [u8; 3],
+    _pad: [u8; 3],
+}
+
+impl CellInstance {
+    /// The glyph part of an instance (uv, offset, flags); position and colors are left zero.
+    fn glyph(g: Option<AtlasGlyph>, mut flags: u8) -> CellInstance {
+        let (uv, offset) = match g {
+            Some(g) => {
+                if g.color {
+                    flags |= COLOR_GLYPH;
+                }
+                ([g.x, g.y, g.w, g.h], [g.left, g.top])
+            }
+            None => ([0; 4], [0; 2]),
+        };
+        CellInstance {
+            uv,
+            offset,
+            flags,
+            ..CellInstance::default()
+        }
+    }
 }
 
 /// How a pane's cursor is drawn.
@@ -131,25 +152,12 @@ pub fn text_instances(
     out.clear();
     for &(col, ch, wide) in cells {
         let g = if ch == ' ' { None } else { glyph(ch) };
-        let mut flags = if wide { WIDE } else { 0 };
-        let (uv, offset) = match g {
-            Some(g) => {
-                if g.color {
-                    flags |= COLOR_GLYPH;
-                }
-                ([g.x, g.y, g.w, g.h], [g.left, g.top])
-            }
-            None => ([0; 4], [0; 2]),
-        };
         out.push(CellInstance {
             col,
             row: 0,
             bg: [0; 4],
             fg: rgba(fg),
-            uv,
-            offset,
-            flags,
-            _pad: [0; 3],
+            ..CellInstance::glyph(g, if wide { WIDE } else { 0 })
         });
     }
 }
@@ -183,28 +191,19 @@ fn instance(
     bg: [u8; 4],
     g: Option<AtlasGlyph>,
 ) -> CellInstance {
-    let mut flags = 0;
-    if cell.flags.contains(Flags::WIDE_CHAR) {
-        flags |= WIDE;
-    }
-    let (uv, offset) = match g {
-        Some(g) => {
-            if g.color {
-                flags |= COLOR_GLYPH;
-            }
-            ([g.x, g.y, g.w, g.h], [g.left, g.top])
-        }
-        None => ([0; 4], [0; 2]),
-    };
     CellInstance {
         col: (idx % cols) as u16,
         row: (idx / cols) as u16,
         bg,
         fg,
-        uv,
-        offset,
-        flags,
-        _pad: [0; 3],
+        ..CellInstance::glyph(
+            g,
+            if cell.flags.contains(Flags::WIDE_CHAR) {
+                WIDE
+            } else {
+                0
+            },
+        )
     }
 }
 
