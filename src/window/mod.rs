@@ -643,7 +643,7 @@ impl Window {
         // The window stays hidden until the first pane has spawned, so a bad command
         // fails without a window flash while the child still gets the real WINDOWID.
         // (Wayland ignores `visible`, but shows nothing before the first frame.)
-        // montty draws its own top bar: no system title bar or frame.
+        // montty draws its own top bar: no system title bar or frame (on macOS, see below).
         let attrs = winit::window::Window::default_attributes()
             .with_title(TITLE)
             .with_window_icon(icon::window_icon())
@@ -662,6 +662,18 @@ impl Window {
             winit::platform::wayland::WindowAttributesExtWayland::with_name(
                 attrs, "montty", "montty",
             )
+        };
+        // A frameless macOS window has no resize edges: keep the frame, with its title bar
+        // empty, transparent and under montty's bar.
+        #[cfg(target_os = "macos")]
+        let attrs = {
+            use winit::platform::macos::WindowAttributesExtMacOS;
+            attrs
+                .with_decorations(true)
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_titlebar_buttons_hidden(true)
+                .with_fullsize_content_view(true)
         };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
         let watcher = dir.and_then(|d| {
