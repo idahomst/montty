@@ -157,15 +157,6 @@ impl Confirm {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn confirm() -> Confirm {
         Confirm::new(CloseTarget::Pane(1), confirm_message(1))
     }
@@ -219,7 +210,7 @@ mod tests {
 
     #[test]
     fn confirm_centered_with_buttons_inside() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = confirm();
         let r = c.rect(800, 600, &bm);
         assert_eq!((r.x, r.y), ((800 - r.w) / 2, (600 - r.h) / 2));
@@ -242,7 +233,7 @@ mod tests {
 
     #[test]
     fn confirm_clicks() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = confirm();
         let r = c.rect(800, 600, &bm);
         let (close, cancel) = c.button_rects(800, 600, &bm);
@@ -256,7 +247,7 @@ mod tests {
 
     #[test]
     fn confirm_hover_reports_changes() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let mut c = confirm();
         let (close, cancel) = c.button_rects(800, 600, &bm);
         let (x, y) = center(close);
@@ -272,7 +263,7 @@ mod tests {
 
     #[test]
     fn confirm_never_negative() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = Confirm::new(CloseTarget::Window, confirm_message(3));
         for (w, h) in [(0, 0), (1, 1), (50, 20), (120, 400)] {
             let r = c.rect(w, h, &bm);

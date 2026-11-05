@@ -464,15 +464,6 @@ mod tests {
     use alacritty_terminal::term::test::TermSize;
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn pane() -> Rect {
         Rect {
             x: 0,
@@ -490,8 +481,8 @@ mod tests {
     }
 
     fn paint(b: &FindBar, w: i32) -> BarPaint {
-        let l = findbar_layout(Rect { w, ..pane() }, &bm(), 4);
-        paint_find(&l, b, &bm(), 1, 2.0)
+        let l = findbar_layout(Rect { w, ..pane() }, &BarMetrics::test(), 4);
+        paint_find(&l, b, &BarMetrics::test(), 1, 2.0)
     }
 
     fn fills(p: &BarPaint, color: [f32; 4]) -> usize {
@@ -648,8 +639,8 @@ mod tests {
 
     #[test]
     fn tiny_pane_paints_nothing() {
-        let l = findbar_layout(Rect { w: 6, ..pane() }, &bm(), 4);
-        let p = paint_find(&l, &bar("x"), &bm(), 1, 2.0);
+        let l = findbar_layout(Rect { w: 6, ..pane() }, &BarMetrics::test(), 4);
+        let p = paint_find(&l, &bar("x"), &BarMetrics::test(), 1, 2.0);
         assert!(p.under.is_empty() && p.labels.is_empty() && p.icons.is_empty());
         assert!(p.shapes.is_empty());
     }

@@ -120,15 +120,6 @@ mod tests {
         Rect { x, y, w, h }
     }
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     #[test]
     fn resized_adds_and_extends() {
         let t0 = Instant::now();
@@ -191,15 +182,21 @@ mod tests {
     fn label_rect_is_centred() {
         // "120 × 40" is 8 cols: w = 64 + 12 = 76, h = 16 + 12 = 28.
         assert_eq!(
-            size_label_rect(r(0, 0, 400, 300), 8, &bm()),
+            size_label_rect(r(0, 0, 400, 300), 8, &BarMetrics::test()),
             Some(r(162, 136, 76, 28))
         );
     }
 
     #[test]
     fn label_rect_none_when_pane_too_small() {
-        assert_eq!(size_label_rect(r(0, 0, 75, 300), 8, &bm()), None);
-        assert_eq!(size_label_rect(r(0, 0, 400, 27), 8, &bm()), None);
-        assert!(size_label_rect(r(0, 0, 76, 28), 8, &bm()).is_some());
+        assert_eq!(
+            size_label_rect(r(0, 0, 75, 300), 8, &BarMetrics::test()),
+            None
+        );
+        assert_eq!(
+            size_label_rect(r(0, 0, 400, 27), 8, &BarMetrics::test()),
+            None
+        );
+        assert!(size_label_rect(r(0, 0, 76, 28), 8, &BarMetrics::test()).is_some());
     }
 }

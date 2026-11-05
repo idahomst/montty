@@ -215,15 +215,6 @@ pub fn findbar_hit(l: &FindLayout, x: i32, y: i32) -> Option<FindTarget> {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn pane(w: i32) -> Rect {
         Rect {
             x: 100,
@@ -295,13 +286,13 @@ mod tests {
 
     #[test]
     fn layout_fits_small_pane() {
-        let l = findbar_layout(pane(200), &bm(), 4);
+        let l = findbar_layout(pane(200), &BarMetrics::test(), 4);
         assert!(l.rect.w <= 200 - 8, "{l:?}");
         assert!(l.field.w >= 0);
         assert_eq!((l.rect.h, l.rect.y), (28, 34));
         assert_eq!(l.rect.x + l.rect.w, 100 + 200 - 4);
         // Narrower than the four buttons: the field is empty, no button sticks out.
-        let l = findbar_layout(pane(100), &bm(), 4);
+        let l = findbar_layout(pane(100), &BarMetrics::test(), 4);
         assert!(l.field.w >= 0 && l.rect.w <= 92);
         for (r, _) in &l.buttons {
             assert!(r.x >= l.rect.x && r.x + r.w <= l.rect.x + l.rect.w);
@@ -311,7 +302,7 @@ mod tests {
     #[test]
     fn narrow_pane_drops_buttons_from_the_left() {
         // Bar 3 buttons wide (84 px): Prev goes, the field is empty.
-        let l = findbar_layout(pane(84 + 8), &bm(), 4);
+        let l = findbar_layout(pane(84 + 8), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(
             targets,
@@ -319,7 +310,7 @@ mod tests {
         );
         assert_eq!(l.field.w, 0);
         // One button wide: only Close.
-        let l = findbar_layout(pane(28 + 8), &bm(), 4);
+        let l = findbar_layout(pane(28 + 8), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(targets, [FindTarget::Close]);
         let (r, _) = l.buttons[0];
@@ -329,23 +320,23 @@ mod tests {
     #[test]
     fn layout_is_zero_size_when_the_pane_has_no_room() {
         // Too narrow (no width left after the insets) or too short.
-        assert_eq!(findbar_layout(pane(8), &bm(), 4).rect.w, 0);
+        assert_eq!(findbar_layout(pane(8), &BarMetrics::test(), 4).rect.w, 0);
         let short = Rect { h: 30, ..pane(800) };
-        let l = findbar_layout(short, &bm(), 4);
+        let l = findbar_layout(short, &BarMetrics::test(), 4);
         assert_eq!((l.rect.w, l.rect.h), (0, 0));
         assert!(l.buttons.is_empty());
     }
 
     #[test]
     fn layout_wide_pane_caps_the_width() {
-        let l = findbar_layout(pane(2000), &bm(), 4);
+        let l = findbar_layout(pane(2000), &BarMetrics::test(), 4);
         assert_eq!(l.rect.w, 40 * 8 + 4 * 28);
         assert_eq!(l.field.w, 40 * 8);
     }
 
     #[test]
     fn layout_buttons_in_order() {
-        let l = findbar_layout(pane(800), &bm(), 4);
+        let l = findbar_layout(pane(800), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(
             targets,
@@ -368,7 +359,7 @@ mod tests {
 
     #[test]
     fn hit_buttons_then_field() {
-        let l = findbar_layout(pane(800), &bm(), 4);
+        let l = findbar_layout(pane(800), &BarMetrics::test(), 4);
         let c = |r: Rect| (r.x + 1, r.y + 1);
         for (r, t) in &l.buttons {
             let (x, y) = c(*r);

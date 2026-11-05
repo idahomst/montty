@@ -100,15 +100,6 @@ mod tests {
     use crate::ui::{EDGE_PX, edge_px};
     use std::time::Duration;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     const PANE: Rect = Rect {
         x: 100,
         y: 28,
@@ -125,7 +116,7 @@ mod tests {
 
     #[test]
     fn overlay_inside_pane_top_right() {
-        let o = overlay_layout(PANE, &bm(), EDGE_PX, false);
+        let o = overlay_layout(PANE, &BarMetrics::test(), EDGE_PX, false);
         assert!(inside(o.bg, PANE), "{o:?}");
         assert_eq!(o.bg.x + o.bg.w, PANE.x + PANE.w - 4);
         assert_eq!(o.bg.y, PANE.y + 4);
@@ -145,7 +136,7 @@ mod tests {
 
     #[test]
     fn overlay_three_buttons_order() {
-        let o = overlay_layout(PANE, &bm(), EDGE_PX, false);
+        let o = overlay_layout(PANE, &BarMetrics::test(), EDGE_PX, false);
         let targets: Vec<OverlayTarget> = o.items.iter().map(|&(_, t)| t).collect();
         assert_eq!(
             targets,
@@ -165,7 +156,7 @@ mod tests {
 
     #[test]
     fn overlay_grip_is_leftmost() {
-        let o = overlay_layout(PANE, &bm(), EDGE_PX, true);
+        let o = overlay_layout(PANE, &BarMetrics::test(), EDGE_PX, true);
         let targets: Vec<OverlayTarget> = o.items.iter().map(|&(_, t)| t).collect();
         assert_eq!(
             targets,
@@ -190,7 +181,7 @@ mod tests {
             h: side + 8,
             ..PANE
         };
-        let o = overlay_layout(pane, &bm(), EDGE_PX, true);
+        let o = overlay_layout(pane, &BarMetrics::test(), EDGE_PX, true);
         let targets: Vec<OverlayTarget> = o.items.iter().map(|&(_, t)| t).collect();
         assert_eq!(
             targets,
@@ -204,13 +195,17 @@ mod tests {
             w: 2 * side + 8,
             ..pane
         };
-        assert!(overlay_layout(small, &bm(), EDGE_PX, true).items.is_empty());
+        assert!(
+            overlay_layout(small, &BarMetrics::test(), EDGE_PX, true)
+                .items
+                .is_empty()
+        );
     }
 
     #[test]
     fn overlay_scales_with_inset() {
         // HiDPI: the window passes round(4 × 2) = 8.
-        let o = overlay_layout(PANE, &bm(), 8, false);
+        let o = overlay_layout(PANE, &BarMetrics::test(), 8, false);
         assert_eq!(o.bg.x + o.bg.w, PANE.x + PANE.w - 8);
         assert_eq!(o.bg.y, PANE.y + 8);
         assert_eq!(o.items[0].0.w, 16 + 8);
@@ -218,7 +213,7 @@ mod tests {
 
     #[test]
     fn overlay_hit_finds_buttons() {
-        let o = overlay_layout(PANE, &bm(), EDGE_PX, false);
+        let o = overlay_layout(PANE, &BarMetrics::test(), EDGE_PX, false);
         let (p, m, c) = (o.items[0].0, o.items[1].0, o.items[2].0);
         assert_eq!(overlay_hit(&o, p.x, p.y), Some(OverlayTarget::Profile));
         assert_eq!(
@@ -257,7 +252,12 @@ mod tests {
             h: side + 8,
             ..PANE
         };
-        assert_eq!(overlay_layout(fits, &bm(), EDGE_PX, false).items.len(), 3);
+        assert_eq!(
+            overlay_layout(fits, &BarMetrics::test(), EDGE_PX, false)
+                .items
+                .len(),
+            3
+        );
         for small in [
             // Room for two buttons is not enough any more.
             Rect {
@@ -279,7 +279,7 @@ mod tests {
                 ..fits
             },
         ] {
-            let o = overlay_layout(small, &bm(), EDGE_PX, false);
+            let o = overlay_layout(small, &BarMetrics::test(), EDGE_PX, false);
             assert!(o.items.is_empty(), "{small:?}");
             assert_eq!((o.bg.w, o.bg.h), (0, 0));
             assert_eq!(overlay_hit(&o, small.x, small.y), None);
@@ -300,7 +300,7 @@ mod tests {
         };
         for scale in [0.5, 1.0, 1.25, 1.5, 1.75, 2.0, 3.0] {
             let e = edge_px(scale);
-            let o = overlay_layout(pane, &bm(), e, false);
+            let o = overlay_layout(pane, &BarMetrics::test(), e, false);
             assert_eq!(o.items.len(), 3, "{scale}");
             for r in std::iter::once(o.bg).chain(o.items.iter().map(|&(r, _)| r)) {
                 for (x, y) in [

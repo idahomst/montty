@@ -209,15 +209,6 @@ impl Window {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     const PANE: Rect = Rect {
         x: 100,
         y: 50,
@@ -227,7 +218,7 @@ mod tests {
 
     #[test]
     fn pane_dot_sits_in_the_top_right_corner() {
-        let r = pane_dot_rect(PANE, &bm()).unwrap();
+        let r = pane_dot_rect(PANE, &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -237,7 +228,7 @@ mod tests {
                 h: 8
             }
         );
-        assert!(pane_dot_rect(Rect { w: 10, ..PANE }, &bm()).is_none());
+        assert!(pane_dot_rect(Rect { w: 10, ..PANE }, &BarMetrics::test()).is_none());
     }
 
     #[test]
@@ -248,7 +239,7 @@ mod tests {
             w: 96,
             h: 22,
         };
-        let r = pane_dot_at(PANE, Some(bg), &bm()).unwrap();
+        let r = pane_dot_at(PANE, Some(bg), &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -258,9 +249,12 @@ mod tests {
                 h: 8
             }
         );
-        assert_eq!(pane_dot_at(PANE, None, &bm()), pane_dot_rect(PANE, &bm()));
+        assert_eq!(
+            pane_dot_at(PANE, None, &BarMetrics::test()),
+            pane_dot_rect(PANE, &BarMetrics::test())
+        );
         let tight = Rect { x: 102, ..bg };
-        assert!(pane_dot_at(PANE, Some(tight), &bm()).is_none());
+        assert!(pane_dot_at(PANE, Some(tight), &BarMetrics::test()).is_none());
     }
 
     #[test]
@@ -271,14 +265,14 @@ mod tests {
             w: 8,
             h: 8,
         };
-        let below = dot_label_rect(dot, 10, (400, 300), &bm()).unwrap();
+        let below = dot_label_rect(dot, 10, (400, 300), &BarMetrics::test()).unwrap();
         assert_eq!(below.y, 64 + LABEL_GAP);
         assert_eq!(below.x + below.w, 400, "shifted left to fit");
         let low = Rect { y: 290, ..dot };
-        let above = dot_label_rect(low, 10, (400, 300), &bm()).unwrap();
+        let above = dot_label_rect(low, 10, (400, 300), &BarMetrics::test()).unwrap();
         assert_eq!(above.y + above.h + LABEL_GAP, 290);
-        assert!(dot_label_rect(dot, 0, (400, 300), &bm()).is_none());
-        let tiny = dot_label_rect(dot, 100, (60, 300), &bm()).unwrap();
+        assert!(dot_label_rect(dot, 0, (400, 300), &BarMetrics::test()).is_none());
+        let tiny = dot_label_rect(dot, 100, (60, 300), &BarMetrics::test()).unwrap();
         assert_eq!((tiny.x, tiny.w), (0, 60));
     }
 }

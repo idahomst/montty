@@ -546,15 +546,6 @@ mod tests {
 
     const ACCENT_T: [f32; 4] = [0.29, 0.56, 0.85, 1.0];
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn rect_of(bar: &Bar, t: Target) -> Rect {
         bar.items.iter().find(|i| i.target == t).unwrap().rect
     }
@@ -734,7 +725,13 @@ mod tests {
     }
 
     fn two_tabs() -> Bar {
-        layout(800, &bm(), &["bash".to_string(), "vim".to_string()], 0, &[])
+        layout(
+            800,
+            &BarMetrics::test(),
+            &["bash".to_string(), "vim".to_string()],
+            0,
+            &[],
+        )
     }
 
     #[test]
@@ -877,7 +874,7 @@ mod tests {
 
     #[test]
     fn single_tab_is_underlined() {
-        let bar = layout(800, &bm(), &["bash".to_string()], 0, &[]);
+        let bar = layout(800, &BarMetrics::test(), &["bash".to_string()], 0, &[]);
         let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         assert_eq!(p.under.last().unwrap().color, ACCENT_T);
     }
@@ -885,7 +882,7 @@ mod tests {
     #[test]
     fn marked_tab_paints_a_coloured_disc() {
         let ls = ["bash".to_string(), "vim".to_string()];
-        let bar = layout(800, &bm(), &ls, 0, &[false, true]);
+        let bar = layout(800, &BarMetrics::test(), &ls, 0, &[false, true]);
         let marks = [None, Some(Level::Blocked)];
         let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &marks);
         let dot = bar.tabs[1].dot_rect.unwrap();

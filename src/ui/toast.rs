@@ -169,15 +169,6 @@ mod tests {
         }
     }
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     #[test]
     fn toast_text_and_expiry() {
         let now = Instant::now();
@@ -252,7 +243,7 @@ mod tests {
         let now = Instant::now();
         // 10 columns: 80 px of text plus 6 px padding each side.
         let t = Toast::new("0123456789", ToastSource::Watcher, now);
-        let r = t.rect(800, 600, &bm());
+        let r = t.rect(800, 600, &BarMetrics::test());
         assert_eq!(
             r,
             Rect {
@@ -264,13 +255,13 @@ mod tests {
         );
         // Too long: 90 % of the window.
         let t = Toast::new(&"x".repeat(200), ToastSource::Watcher, now);
-        let r = t.rect(800, 600, &bm());
+        let r = t.rect(800, 600, &BarMetrics::test());
         assert_eq!((r.x, r.w), (40, 720));
         assert_eq!(r.y + r.h, 600 - 12);
         // A tiny window never gets a negative size, or a toast above its top edge.
-        let r = t.rect(0, 0, &bm());
+        let r = t.rect(0, 0, &BarMetrics::test());
         assert!(r.w >= 0 && r.h >= 0);
-        assert_eq!(t.rect(800, 20, &bm()).y, 0);
+        assert_eq!(t.rect(800, 20, &BarMetrics::test()).y, 0);
     }
 
     #[test]

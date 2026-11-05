@@ -19,6 +19,17 @@ pub struct BarMetrics {
 }
 
 impl BarMetrics {
+    /// Fixed metrics shared by the unit tests of every module that draws chrome.
+    #[cfg(test)]
+    pub fn test() -> Self {
+        Self {
+            height: 28,
+            pad: 6,
+            cell_w: 8,
+            cell_h: 16,
+        }
+    }
+
     /// Diameter of an attention dot: 8 logical px (`pad` is 6 logical px), at least 4.
     pub fn dot(&self) -> i32 {
         ((self.pad as f32 * 4.0 / 3.0).round() as i32).max(4)
@@ -274,25 +285,16 @@ pub fn tab_label(rename: Option<&str>, pane_title: Option<&str>) -> String {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
-    // With bm(): minimum tab width 82, squeeze threshold 42.
+    // With BarMetrics::test(): minimum tab width 82, squeeze threshold 42.
     #[test]
     fn visible_tabs_natural_widths_when_all_fit() {
-        let v = visible_tabs(&bm(), &[100, 120, 90], 400, 1);
+        let v = visible_tabs(&BarMetrics::test(), &[100, 120, 90], 400, 1);
         assert_eq!(v, vec![(0, 100), (1, 120), (2, 90)]);
     }
 
     #[test]
     fn visible_tabs_share_room_down_to_the_minimum() {
-        let v = visible_tabs(&bm(), &[200, 200, 200], 300, 0);
+        let v = visible_tabs(&BarMetrics::test(), &[200, 200, 200], 300, 0);
         assert_eq!(v, vec![(0, 100), (1, 100), (2, 100)]);
     }
 
@@ -300,15 +302,24 @@ mod tests {
     fn visible_tabs_overflow_keeps_the_active_tab() {
         // Room for two minimum tabs of five: a far active tab replaces the last visible one.
         let nat = [100; 5];
-        assert_eq!(visible_tabs(&bm(), &nat, 170, 0), vec![(0, 82), (1, 82)]);
-        assert_eq!(visible_tabs(&bm(), &nat, 170, 4), vec![(0, 82), (4, 82)]);
+        assert_eq!(
+            visible_tabs(&BarMetrics::test(), &nat, 170, 0),
+            vec![(0, 82), (1, 82)]
+        );
+        assert_eq!(
+            visible_tabs(&BarMetrics::test(), &nat, 170, 4),
+            vec![(0, 82), (4, 82)]
+        );
     }
 
     #[test]
     fn visible_tabs_squeezes_only_the_active_tab() {
-        assert_eq!(visible_tabs(&bm(), &[100, 100], 60, 1), vec![(1, 60)]);
-        assert!(visible_tabs(&bm(), &[100, 100], 41, 1).is_empty());
-        assert!(visible_tabs(&bm(), &[], 400, 0).is_empty());
+        assert_eq!(
+            visible_tabs(&BarMetrics::test(), &[100, 100], 60, 1),
+            vec![(1, 60)]
+        );
+        assert!(visible_tabs(&BarMetrics::test(), &[100, 100], 41, 1).is_empty());
+        assert!(visible_tabs(&BarMetrics::test(), &[], 400, 0).is_empty());
     }
 
     fn rect_of(bar: &Bar, t: Target) -> Rect {
@@ -355,7 +366,7 @@ mod tests {
 
     #[test]
     fn buttons_right_aligned_in_order() {
-        let bar = layout(800, &bm(), &[], 0, &[]);
+        let bar = layout(800, &BarMetrics::test(), &[], 0, &[]);
         let r = |t| rect_of(&bar, t);
         assert_eq!(
             r(Target::Close),
@@ -386,7 +397,7 @@ mod tests {
 
     #[test]
     fn tab_width_from_label() {
-        let bar = layout(800, &bm(), &["bash".to_string()], 0, &[]);
+        let bar = layout(800, &BarMetrics::test(), &["bash".to_string()], 0, &[]);
         let t = rect_of(&bar, Target::Tab(0));
         assert_eq!((t.x, t.w, t.h), (0, 82, 28));
         let c = rect_of(&bar, Target::TabClose(0));
@@ -401,18 +412,24 @@ mod tests {
 
     #[test]
     fn new_tab_button_follows_last_tab() {
-        let bar = layout(800, &bm(), &["a".to_string(), "b".to_string()], 0, &[]);
+        let bar = layout(
+            800,
+            &BarMetrics::test(),
+            &["a".to_string(), "b".to_string()],
+            0,
+            &[],
+        );
         let last = rect_of(&bar, Target::Tab(1));
         let nt = rect_of(&bar, Target::NewTab);
         assert_eq!(nt.x, last.x + last.w);
         assert_eq!((nt.w, nt.h), (28, 28));
-        let bar = layout(800, &bm(), &[], 0, &[]);
+        let bar = layout(800, &BarMetrics::test(), &[], 0, &[]);
         assert_eq!(rect_of(&bar, Target::NewTab).x, 0);
     }
 
     #[test]
     fn tabs_shrink_to_fit() {
-        let bar = layout(900, &bm(), &labels(10, 24), 0, &[]);
+        let bar = layout(900, &BarMetrics::test(), &labels(10, 24), 0, &[]);
         let tabs = tab_rects(&bar);
         assert!(!tabs.is_empty());
         let w0 = tabs[0].1.w;
@@ -427,7 +444,7 @@ mod tests {
 
     #[test]
     fn many_tabs_keep_active_visible() {
-        let bar = layout(600, &bm(), &labels(20, 10), 17, &[]);
+        let bar = layout(600, &BarMetrics::test(), &labels(20, 10), 17, &[]);
         let tabs = tab_rects(&bar);
         assert!(tabs.iter().any(|(i, _)| *i == 17));
         assert!(tabs.len() < 20);
@@ -440,19 +457,25 @@ mod tests {
 
     #[test]
     fn narrow_window_keeps_buttons_no_overlap() {
-        let bar = layout(100, &bm(), &labels(3, 5), 0, &[]);
+        let bar = layout(100, &BarMetrics::test(), &labels(3, 5), 0, &[]);
         assert!(tab_rects(&bar).is_empty());
         assert_eq!(rect_of(&bar, Target::Close).x, 72);
         assert_sane(&bar, 100);
         for w in [0, 1, 27, 28, 29, 60, 90, 130] {
-            let bar = layout(w, &bm(), &labels(3, 5), 2, &[]);
+            let bar = layout(w, &BarMetrics::test(), &labels(3, 5), 2, &[]);
             assert_sane(&bar, w);
         }
     }
 
     #[test]
     fn hit_maps_points() {
-        let bar = layout(800, &bm(), &["bash".to_string(), "zsh".to_string()], 0, &[]);
+        let bar = layout(
+            800,
+            &BarMetrics::test(),
+            &["bash".to_string(), "zsh".to_string()],
+            0,
+            &[],
+        );
         assert_eq!(hit(&bar, 790, 10), Some(Target::Close));
         let c = rect_of(&bar, Target::TabClose(1));
         assert_eq!(hit(&bar, c.x + 2, c.y + 2), Some(Target::TabClose(1)));
@@ -494,7 +517,13 @@ mod tests {
     fn natural_width_never_truncates() {
         for n in 6..=24 {
             let label = "w".repeat(n);
-            let bar = layout(2000, &bm(), std::slice::from_ref(&label), 0, &[]);
+            let bar = layout(
+                2000,
+                &BarMetrics::test(),
+                std::slice::from_ref(&label),
+                0,
+                &[],
+            );
             assert_eq!(bar.tabs[0].label, label, "n={n}");
         }
     }
@@ -506,10 +535,10 @@ mod tests {
             for n in 0..30usize {
                 let ls: Vec<String> = (0..n).map(|i| "y".repeat(3 + i % 25)).collect();
                 for active in [0, n / 2, n.saturating_sub(1)] {
-                    let bar = layout(width, &bm(), &ls, active, &[]);
+                    let bar = layout(width, &BarMetrics::test(), &ls, active, &[]);
                     assert_sane(&bar, width);
                     let tabs = tab_rects(&bar);
-                    let b = bm();
+                    let b = BarMetrics::test();
                     let available = bar
                         .items
                         .iter()
@@ -536,7 +565,7 @@ mod tests {
 
     #[test]
     fn narrow_window_shows_active_tab_truncated() {
-        let b = bm();
+        let b = BarMetrics::test();
         // Full right cluster is 7 buttons + the gap; 60px is left for tabs.
         let width = 7 * b.height + b.pad + b.height + 60;
         let ls = vec![
@@ -571,12 +600,12 @@ mod tests {
     #[test]
     fn dot_shifts_label() {
         let ls = ["aaaa".to_string(), "bbbb".to_string()];
-        let plain = layout(800, &bm(), &ls, 0, &[false, false]);
-        let dotted = layout(800, &bm(), &ls, 0, &[false, true]);
+        let plain = layout(800, &BarMetrics::test(), &ls, 0, &[false, false]);
+        let dotted = layout(800, &BarMetrics::test(), &ls, 0, &[false, true]);
         assert!(plain.tabs.iter().all(|t| t.dot_rect.is_none()));
         assert!(dotted.tabs[0].dot_rect.is_none());
         let dot = dotted.tabs[1].dot_rect.expect("tab 1 has a dot");
-        let shift = bm().dot() + bm().pad / 2;
+        let shift = BarMetrics::test().dot() + BarMetrics::test().pad / 2;
         assert_eq!(
             dotted.tabs[1].text_rect.x,
             plain.tabs[1].text_rect.x + shift
@@ -584,15 +613,21 @@ mod tests {
         assert_eq!(dotted.tabs[0].text_rect, plain.tabs[0].text_rect);
         assert_eq!((dot.w, dot.h), (8, 8));
         assert_eq!(dot.x, plain.tabs[1].text_rect.x);
-        assert_eq!(dot.y, (bm().height - dot.h) / 2);
+        assert_eq!(dot.y, (BarMetrics::test().height - dot.h) / 2);
     }
 
     #[test]
     fn dot_diameter_scales_and_has_a_floor() {
-        assert_eq!(bm().dot(), 8);
-        let big = BarMetrics { pad: 12, ..bm() };
+        assert_eq!(BarMetrics::test().dot(), 8);
+        let big = BarMetrics {
+            pad: 12,
+            ..BarMetrics::test()
+        };
         assert_eq!(big.dot(), 16);
-        let tiny = BarMetrics { pad: 1, ..bm() };
+        let tiny = BarMetrics {
+            pad: 1,
+            ..BarMetrics::test()
+        };
         assert_eq!(tiny.dot(), 4);
     }
 }

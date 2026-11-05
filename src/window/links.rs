@@ -210,15 +210,6 @@ mod tests {
         );
     }
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn cell(x: i32, y: i32) -> Rect {
         Rect { x, y, w: 9, h: 18 }
     }
@@ -232,7 +223,7 @@ mod tests {
 
     #[test]
     fn label_sits_below_the_link() {
-        let r = label_rect(cell(120, 70), cell(150, 88), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(120, 70), cell(150, 88), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -247,39 +238,53 @@ mod tests {
     #[test]
     fn label_flips_above_at_the_pane_bottom() {
         // The row below would end at 250 + 10: past the pane's bottom (250).
-        let r = label_rect(cell(120, 214), cell(120, 232), PANE, 10, &bm()).unwrap();
+        let r = label_rect(
+            cell(120, 214),
+            cell(120, 232),
+            PANE,
+            10,
+            &BarMetrics::test(),
+        )
+        .unwrap();
         assert_eq!((r.y, r.y + r.h), (214 - 28, 214));
         // Fits exactly: stays below.
-        let r = label_rect(cell(120, 186), cell(120, 204), PANE, 10, &bm()).unwrap();
+        let r = label_rect(
+            cell(120, 186),
+            cell(120, 204),
+            PANE,
+            10,
+            &BarMetrics::test(),
+        )
+        .unwrap();
         assert_eq!(r.y, 222);
         assert_eq!(r.y + r.h, 250);
     }
 
     #[test]
     fn label_is_clamped_to_the_pane_edge() {
-        let r = label_rect(cell(380, 70), cell(380, 70), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(380, 70), cell(380, 70), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!((r.x, r.w), (400 - 92, 92));
         // Left of the pane: pulled in too.
-        let r = label_rect(cell(90, 70), cell(90, 70), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(90, 70), cell(90, 70), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!(r.x, 100);
     }
 
     #[test]
     fn label_is_at_most_the_pane_wide() {
-        let r = label_rect(cell(200, 70), cell(200, 70), PANE, 500, &bm()).unwrap();
+        let r = label_rect(cell(200, 70), cell(200, 70), PANE, 500, &BarMetrics::test()).unwrap();
         assert_eq!((r.x, r.w), (100, 300));
     }
 
     #[test]
     fn no_label_in_a_pane_too_small() {
         let small = |w, h| Rect { w, h, ..PANE };
-        let f = |p| label_rect(cell(100, 50), cell(100, 50), p, 5, &bm());
+        let f = |p| label_rect(cell(100, 50), cell(100, 50), p, 5, &BarMetrics::test());
         assert_eq!(f(small(19, 200)), None);
         assert!(f(small(20, 200)).is_some());
         assert_eq!(f(small(300, 27)), None);
         assert!(f(small(300, 28)).is_some());
         assert_eq!(
-            label_rect(cell(100, 50), cell(100, 50), PANE, 0, &bm()),
+            label_rect(cell(100, 50), cell(100, 50), PANE, 0, &BarMetrics::test()),
             None
         );
     }

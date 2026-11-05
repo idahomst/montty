@@ -1319,15 +1319,6 @@ mod tests {
     use crate::window::tabs::Tab;
     use winit::keyboard::{Key, NamedKey};
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn menu_at(anchor_right: i32) -> Menu {
         Menu::new(menu_items(&Bindings::defaults()), anchor_right, 28)
     }
@@ -1455,7 +1446,7 @@ mod tests {
 
     #[test]
     fn paint_confirm_frame_buttons_and_text() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let mut c = Confirm::new(CloseTarget::Tab(1), confirm_message(2));
         let r = c.rect(800, 600, &bm);
         let (close, cancel) = c.button_rects(800, 600, &bm);
@@ -1494,7 +1485,7 @@ mod tests {
 
     #[test]
     fn paint_confirm_truncates_message() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = Confirm::new(CloseTarget::Window, confirm_message(1));
         let r = c.rect(200, 300, &bm);
         let p = paint_confirm(&c, 200, 300, &bm, 1);
@@ -1557,7 +1548,7 @@ mod tests {
 
     #[test]
     fn save_prompt_is_a_titled_field_inside_its_panel() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let (panel, title, field) = save_prompt_layout(800, 600, &bm, 1);
         assert!(inside(
             Rect {
@@ -1669,7 +1660,7 @@ mod tests {
 
     #[test]
     fn menu_clamped_to_window_left_edge() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         assert_eq!(menu_shift(&menu_at(400), &bm), 0);
         let m = menu_at(50);
         let w = m.rect(&bm).w;
@@ -1704,7 +1695,7 @@ mod tests {
 
     #[test]
     fn profile_menu_limits_follow_the_window() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let button = Rect {
             x: 300,
             y: 40,
@@ -1727,7 +1718,7 @@ mod tests {
 
     #[test]
     fn menu_with_many_long_profiles_fits_the_window() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let button = Rect {
             x: 90,
             y: 0,
@@ -1788,7 +1779,7 @@ mod tests {
 
     #[test]
     fn paint_menu_check_mark_in_accent() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let stems = [
             ("a".to_string(), "Alpha".to_string()),
             ("b".to_string(), "Beta".to_string()),
@@ -1818,7 +1809,7 @@ mod tests {
 
     #[test]
     fn paint_menu_frame_hover_and_text() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let mut m = menu_at(400);
         let r = m.rect(&bm);
         let p = paint_menu(&m, &bm, 1);
@@ -1924,7 +1915,7 @@ mod tests {
 
     #[test]
     fn paint_menu_separator_is_a_line() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let m = Menu::new(pane_menu_items(&Bindings::defaults(), true), 400, 28);
         let r = m.rect(&bm);
         let sep = m.item_rects(&bm)[4];
@@ -1947,7 +1938,7 @@ mod tests {
 
     #[test]
     fn paint_panel_clips_lines() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let mut panel = InfoPanel::new("T", (0..100).map(|i| format!("line {i}")).collect());
         let r = panel.rect(800, 600, &bm);
         let p = paint_panel(&panel, 800, 600, &bm, 1);
@@ -1985,7 +1976,7 @@ mod tests {
 
     #[test]
     fn paint_panel_truncates_wide_lines() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let panel = InfoPanel::new("T", vec!["x".repeat(500)]);
         let r = panel.rect(400, 300, &bm);
         let p = paint_panel(&panel, 400, 300, &bm, 1);
@@ -1996,7 +1987,7 @@ mod tests {
 
     #[test]
     fn paint_rename_border_text_and_beam() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let text = Rect {
             x: 6,
             y: 6,
@@ -2128,7 +2119,7 @@ mod tests {
 
     #[test]
     fn renamed_tab_grows_with_its_text() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let text = "montty dev";
         let labels = [editing_label(text), "other".into()];
         let bar = crate::ui::topbar::layout(800, &bm, &labels, 0, &[]);

@@ -366,15 +366,6 @@ impl Menu {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn menu() -> Menu {
         let item = |l: &str, s: Option<&str>, a| MenuItem {
             label: l.into(),
@@ -426,7 +417,7 @@ mod tests {
     #[test]
     fn menu_click_inside_and_outside() {
         let m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let rs = m.item_rects(&bm);
         assert_eq!(rs.len(), 3);
         let r = rs[1];
@@ -442,7 +433,7 @@ mod tests {
     #[test]
     fn menu_hover_selects() {
         let mut m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let r = m.item_rects(&bm)[2];
         m.hover(r.x + 1, r.y + 1, &bm);
         assert_eq!(m.selected(), Some(2));
@@ -457,7 +448,7 @@ mod tests {
     #[test]
     fn menu_aligned_to_anchor() {
         let m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let r = m.rect(&bm);
         assert_eq!(r.x + r.w, 400);
         assert_eq!(r.y, 28);
@@ -486,7 +477,7 @@ mod tests {
             100,
             0,
         );
-        assert_eq!(m.rect(&bm()).w, 12 * 8 + 12);
+        assert_eq!(m.rect(&BarMetrics::test()).w, 12 * 8 + 12);
     }
 
     #[test]
@@ -598,11 +589,11 @@ mod tests {
         assert_eq!(m.selected(), Some(0));
         m.key(&up());
         assert_eq!(m.selected(), Some(0));
-        let rows = m.item_rects(&bm());
-        m.hover(rows[1].x + 1, rows[1].y + 1, &bm());
+        let rows = m.item_rects(&BarMetrics::test());
+        m.hover(rows[1].x + 1, rows[1].y + 1, &BarMetrics::test());
         assert_eq!(m.selected(), Some(0));
         assert_eq!(
-            m.click(rows[1].x + 1, rows[1].y + 1, &bm()),
+            m.click(rows[1].x + 1, rows[1].y + 1, &BarMetrics::test()),
             MenuOutcome::None
         );
     }
@@ -623,7 +614,7 @@ mod tests {
             400,
             28,
         );
-        let bm = bm();
+        let bm = BarMetrics::test();
         let rows = m.item_rects(&bm);
         let sep = separator_height(&bm);
         assert!(sep > 0 && sep < bm.height);

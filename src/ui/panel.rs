@@ -112,15 +112,6 @@ impl InfoPanel {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn panel(n: usize) -> InfoPanel {
         InfoPanel::new(
             "Shortcuts",
@@ -131,22 +122,22 @@ mod tests {
     #[test]
     fn panel_centered_and_clamped() {
         let p = panel(3);
-        let r = p.rect(800, 600, &bm());
+        let r = p.rect(800, 600, &BarMetrics::test());
         assert_eq!(r.w, 14 * 8 + 12);
         assert_eq!(r.x, (800 - r.w) / 2);
         assert_eq!(r.y, (600 - r.h) / 2);
         // Many lines clamp to 90% of the window height.
-        let r = panel(200).rect(800, 600, &bm());
+        let r = panel(200).rect(800, 600, &BarMetrics::test());
         assert_eq!(r.h, 540);
         assert_eq!(r.y, 30);
         // A long line clamps to 90% of the width.
         let wide = InfoPanel::new("t", vec!["x".repeat(500)]);
-        assert_eq!(wide.rect(800, 600, &bm()).w, 720);
+        assert_eq!(wide.rect(800, 600, &BarMetrics::test()).w, 720);
     }
 
     #[test]
     fn scrolling_panel_fits_its_marker() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let short = |n: usize| InfoPanel::new("T", (0..n).map(|i| i.to_string()).collect());
         // "↓ 100 more" is 10 columns, wider than any line.
         assert_eq!(short(100).rect(800, 600, &bm).w, 10 * 8 + 12);
@@ -157,14 +148,14 @@ mod tests {
     #[test]
     fn panel_never_negative() {
         for (w, h) in [(0, 0), (1, 1), (5, 3)] {
-            let r = panel(5).rect(w, h, &bm());
+            let r = panel(5).rect(w, h, &BarMetrics::test());
             assert!(r.x >= 0 && r.y >= 0 && r.w >= 0 && r.h >= 0, "{r:?}");
         }
     }
 
     #[test]
     fn visible_lines_fit_below_title() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let p = panel(200);
         let r = p.rect(800, 600, &bm);
         // 540 px: pad, title, pad, rows, pad.
