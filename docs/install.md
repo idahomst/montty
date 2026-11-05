@@ -33,7 +33,7 @@ The tarball holds `bin/montty`, `assets/icon/hicolor`, `assets/montty.desktop`, 
 
 ## From a source build
 
-Needs Rust 1.85 or newer. From the repo root, after `cargo build --release`:
+Needs Rust 1.88 or newer. From the repo root, after `cargo build --release`:
 
 ```bash
 mkdir -p ~/.local/bin ~/.local/share/icons ~/.local/share/applications

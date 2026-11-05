@@ -38,7 +38,7 @@ Download a package from the [latest release](https://github.com/idahomst/montty/
 cargo build --release      # binary: target/release/montty
 ```
 
-You need a stable Rust toolchain, 1.85 or newer (the crate uses the 2024 edition), and a C compiler for a few build
+You need a stable Rust toolchain, 1.88 or newer, and a C compiler for a few build
 scripts. X11, Wayland and OpenGL libraries are loaded at run time, so no `-dev` packages are required. At run time
 you need OpenGL 3.3 (or GLES 3), `libxkbcommon`, and a monospace font such as DejaVu Sans Mono.
 See [docs/install.md](docs/install.md) for installing the result by hand.
