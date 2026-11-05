@@ -68,6 +68,7 @@ Top-level modules (`src/`):
   routes them, `content.rs` builds what they hold, `paint.rs` draws them.
 - `pane_drag.rs`: drag-to-swap state machine. `sizes.rs`: size labels shown while resizing. `blink.rs`: cursor blink.
 - `images.rs`: background image textures shared per image. `sessions.rs`: saving sessions and the session list.
+- `titlebar.rs` (macOS): keeps bar presses from acting as native title bar presses (zoom on a double press).
 - `attention.rs`: pure state of which panes need the user (blocked / error / done) and how urgently; no timers.
   `marks.rs`: attention dots on tabs and panes (placement, hover label).
 

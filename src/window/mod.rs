@@ -19,6 +19,8 @@ mod sessions;
 mod sizes;
 pub use sessions::{StartupInit, startup_init};
 mod tabs;
+#[cfg(target_os = "macos")]
+mod titlebar;
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -676,6 +678,8 @@ impl Window {
                 .with_fullsize_content_view(true)
         };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
+        #[cfg(target_os = "macos")]
+        titlebar::keep_bar_presses();
         let watcher = dir.and_then(|d| {
             let (w, errs) = start_watcher(&d, window.id(), sink.clone());
             for e in &errs {
