@@ -62,7 +62,8 @@ Top-level modules (`src/`):
 - `tabs.rs`: pure tab collection; each tab owns a split tree.
 - `bar.rs`: top bar drawing and clicks. `mouse.rs`: mouse routing (modal, toast, bar, find, overlay, dividers, selection).
 - `selection.rs`: mouse selection. `links.rs`: Ctrl+click links. `find.rs`: scrollback search and find bar glue.
-- `modal.rs`: menus, panels, prompts, close confirmation (at most one open; it takes all input).
+- `modal/`: menus, panels, prompts, close confirmation (at most one open; it takes all input). `mod.rs` opens and
+  routes them, `content.rs` builds what they hold, `paint.rs` draws them.
 - `pane_drag.rs`: drag-to-swap state machine. `sizes.rs`: size labels shown while resizing. `blink.rs`: cursor blink.
 - `images.rs`: background image textures shared per image. `sessions.rs`: saving sessions and the session list.
 - `attention.rs`: pure state of which panes need the user (blocked / error / done) and how urgently; no timers.
@@ -94,7 +95,8 @@ Key flows:
 
 - Match the surrounding code's comment density and idiom. Comments explain why, not what.
 - Keep logic pure and testable next to the code, with `#[cfg(test)]` tests; keep GL and window code thin. Integration
-  tests are in `tests/`. Tests must never touch the real `~/.config/montty` (use a temp dir).
+  tests are in `tests/`. Tests must never touch the real `~/.config/montty`: use a temp dir (`testutil::TempDir` in
+  unit tests, `tests/common` in integration tests).
 - No new crates without a strong reason; the dependency tree is deliberately small and each direct dependency is
   commented in `Cargo.toml`. Prefer pure-Rust crates.
 - Performance gates in `docs/bench.md` (`cat` throughput, key latency, idle CPU 0 %, RSS, binary size) must not
