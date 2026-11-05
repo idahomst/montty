@@ -280,9 +280,7 @@ impl Window {
             (SplitTree::from_shape(shape), focused)
         } else {
             for (id, _) in &leaves {
-                self.panes.remove(id);
-                self.sizes.remove(id);
-                self.pane_profiles.remove(id);
+                self.forget_pane(*id);
             }
             let id = next_pane_id();
             self.pane_profiles.insert(id, self.default_style());
@@ -333,11 +331,7 @@ impl Window {
         self.tabs.select(active);
         // The old panes' PTYs shut down as they drop; late events from them find no owner.
         for id in old {
-            self.attention.remove(id);
-            self.panes.remove(&id);
-            self.sizes.remove(&id);
-            self.pane_profiles.remove(&id);
-            self.scrolled.remove(&id);
+            self.forget_pane(id);
         }
         self.evict_fonts();
         self.find = None;

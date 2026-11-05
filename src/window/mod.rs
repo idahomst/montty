@@ -1680,10 +1680,7 @@ impl Window {
         let sibling = self.rename_sibling(id);
         let area = self.area();
         let removed = actions::remove_pane(&mut self.tabs, id, area);
-        self.panes.remove(&id);
-        self.attention.remove(id);
-        self.sizes.remove(&id);
-        self.pane_profiles.remove(&id);
+        self.forget_pane(id);
         if self.find.as_ref().is_some_and(|f| f.pane == id) {
             self.find = None;
         }
@@ -1708,6 +1705,16 @@ impl Window {
         }
         self.evict_fonts();
         true
+    }
+
+    /// Drop pane `id` (its PTY shuts down) and everything kept per pane, so a new
+    /// per-pane map has one place to be cleared.
+    pub(super) fn forget_pane(&mut self, id: PaneId) {
+        self.panes.remove(&id);
+        self.sizes.remove(&id);
+        self.pane_profiles.remove(&id);
+        self.attention.remove(id);
+        self.scrolled.remove(&id);
     }
 
     fn scroll_focused(&mut self, s: Scroll) {
