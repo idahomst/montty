@@ -19,16 +19,8 @@ pub enum RemoveResult {
     Empty,
 }
 
-#[derive(Clone, Debug)]
-enum Node {
-    Leaf(PaneId),
-    Split {
-        orientation: Orientation,
-        ratio: f32,
-        a: Box<Node>,
-        b: Box<Node>,
-    },
-}
+/// The tree's nodes are the same type a saved session stores.
+type Node = Shape<PaneId>;
 
 #[derive(Clone, Debug)]
 pub struct SplitTree {
@@ -384,36 +376,20 @@ impl<L> Shape<L> {
     }
 }
 
-fn node_shape(n: &Node) -> Shape<PaneId> {
-    match n {
-        Node::Leaf(id) => Shape::Leaf(*id),
-        Node::Split {
-            orientation,
-            ratio,
-            a,
-            b,
-        } => Shape::Split {
-            orientation: *orientation,
-            ratio: *ratio,
-            a: Box::new(node_shape(a)),
-            b: Box::new(node_shape(b)),
-        },
-    }
-}
-
-fn shape_node(s: Shape<PaneId>) -> Node {
+/// Clamps every split ratio to 0.0..=1.0 (a session file is untrusted).
+fn clamp_ratios(s: Node) -> Node {
     match s {
-        Shape::Leaf(id) => Node::Leaf(id),
+        Shape::Leaf(id) => Shape::Leaf(id),
         Shape::Split {
             orientation,
             ratio,
             a,
             b,
-        } => Node::Split {
+        } => Shape::Split {
             orientation,
             ratio: ratio.clamp(0.0, 1.0),
-            a: Box::new(shape_node(*a)),
-            b: Box::new(shape_node(*b)),
+            a: Box::new(clamp_ratios(*a)),
+            b: Box::new(clamp_ratios(*b)),
         },
     }
 }
@@ -428,13 +404,13 @@ impl SplitTree {
     }
 
     pub fn shape(&self) -> Shape<PaneId> {
-        node_shape(&self.root)
+        self.root.clone()
     }
 
     /// Not maximized, default minimum extent; ratios clamped to 0.0..=1.0.
     pub fn from_shape(s: Shape<PaneId>) -> Self {
         Self {
-            root: shape_node(s),
+            root: clamp_ratios(s),
             maximized: None,
             min: (MIN_PANE_PX, MIN_PANE_PX),
         }
