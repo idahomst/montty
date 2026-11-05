@@ -701,7 +701,6 @@ impl Window {
             font.padding,
         );
         let size = window_size(cols, lines, &font.metrics);
-        // The error already names the command ("Failed to spawn command '...': ...").
         // A profile's program that can't start falls back to a shell; `-e` doesn't.
         let mut first_pane = None;
         if session.is_none() {
@@ -1043,15 +1042,16 @@ impl Window {
             // OSC 52 policy: programs may store, never read (nothing is written back).
             Event::ClipboardLoad(..) => {}
             Event::Bell => self.ring_bell(pane),
-            // Mouse cursor and blink are not handled yet.
+            // Ignored: the pointer icon is picked on every move, and each frame reads the
+            // cursor's blink state from the terminal.
             Event::MouseCursorDirty | Event::CursorBlinkingChange => {}
         }
         true
     }
 
-    /// The earliest of: the pending frame's deadline (when the scheduler deferred it to the
-    /// next refresh), the config reload's, the toast's expiry and the next cursor toggle.
-    /// `now` is the same instant `on_timers` ran with.
+    /// The earliest of every timer: the pending frame (when the scheduler deferred it to the
+    /// next refresh), config reload, autosave, toast, cursor blink, bell flash, scrollbar
+    /// linger and size labels. `now` is the same instant `on_timers` ran with.
     pub fn next_deadline(&self, now: Instant) -> Option<Instant> {
         [
             self.scheduler.deadline(),
@@ -1093,7 +1093,7 @@ impl Window {
         self.debounce.poke(now);
     }
 
-    /// Runs the timers due at `now`: the debounced config reload and the toast's expiry.
+    /// Runs the timers due at `now`: every timer in `next_deadline` but the frame's.
     pub fn on_timers(&mut self, now: Instant) {
         if self.debounce.take_due(now) {
             self.reload_config(now);
@@ -1708,9 +1708,9 @@ impl Window {
         if removed {
             // Its tab's tree minimum may only have held for this pane.
             self.refresh_min_extents();
+            self.set_focus(self.tabs.active().focused);
             // Every tab, not just the active one: in a background tab the pane
             // that took the closed one's place needs its new PTY size now.
-            self.set_focus(self.tabs.active().focused);
             self.relayout_all();
         }
         self.evict_fonts();

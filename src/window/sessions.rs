@@ -122,7 +122,7 @@ pub(super) fn should_autosave(enabled: bool, panes: usize) -> bool {
 /// How the first window starts.
 #[derive(Debug, PartialEq)]
 pub enum StartupInit {
-    /// The default pane (or `-e`/`--session`, which the caller handles).
+    /// The default pane (or `-e`'s command).
     Default,
     /// The last session.
     Session(SessionDoc),

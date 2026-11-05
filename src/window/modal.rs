@@ -32,10 +32,11 @@ use crate::ui::textfield::{FieldOutcome, TextField};
 use crate::ui::theme;
 use crate::ui::topbar::{BarMetrics, Target, tab_label};
 
-/// The save prompt's title and its width in columns.
+/// The save prompt's title.
 pub(super) const SAVE_PROMPT_TITLE: &str = "Save session";
 /// The new profile prompt's title.
 pub(super) const NEW_PROFILE_TITLE: &str = "New profile";
+/// The titled prompts' width in columns.
 const SAVE_PROMPT_COLS: i32 = 40;
 
 /// The open modal widget, if any. Opening one replaces the current one.
@@ -474,9 +475,8 @@ pub(super) fn framed(r: Rect, stroke: i32, bg: [f32; 4], border: [f32; 4]) -> [R
     ]
 }
 
-/// The menu: MENU_BG inside a `stroke` px MENU_BORDER, the selected row in
-/// HOVER, labels left and shortcuts right-aligned. A label's `CHECK` mark is
-/// drawn in ACCENT, the rest of it in TEXT.
+/// The menu in a `stroke` px frame: the selected row highlighted, labels left and
+/// shortcuts right-aligned. A label's `CHECK` mark is drawn in the accent color.
 pub(super) fn paint_menu(menu: &Menu, bm: &BarMetrics, stroke: i32) -> BarPaint {
     let dx = menu_shift(menu, bm);
     let shift = |r: Rect| Rect { x: r.x + dx, ..r };
@@ -553,7 +553,7 @@ pub(super) fn paint_menu(menu: &Menu, bm: &BarMetrics, stroke: i32) -> BarPaint 
 
 /// A panel centered in a `win_w` × `win_h` window: the fixed title, then the
 /// body rows that fit whole from the scroll position, each truncated to the
-/// panel's width. Lines are TEXT; "↑ N more" / "↓ N more" markers TEXT_DIM.
+/// panel's width, with "↑ N more" / "↓ N more" markers.
 pub(super) fn paint_panel(
     panel: &InfoPanel,
     win_w: i32,
@@ -597,10 +597,9 @@ pub(super) fn paint_panel(
     out
 }
 
-/// The close prompt centered in a `win_w` × `win_h` window: PANEL_BG inside
-/// a `stroke` px PANEL_BORDER, the message (TEXT, truncated to the prompt),
-/// then Cancel and Close. Close is the default (Enter): an ACCENT border and
-/// fill; Cancel a PANEL_BORDER border. The hovered button is filled with HOVER.
+/// The close prompt centered in a `win_w` × `win_h` window, in a `stroke` px frame: the
+/// message (truncated to the prompt), then Cancel and Close. Close is the default (Enter),
+/// so it is the accented one; the hovered button is highlighted.
 pub(super) fn paint_confirm(
     c: &Confirm,
     win_w: i32,
@@ -666,8 +665,8 @@ fn field_rect(text: Rect, bm: &BarMetrics, stroke: i32) -> Rect {
     }
 }
 
-/// The rename field over a tab's label rect `text`: an ACCENT border, the
-/// active-tab background, the text and a beam cursor (`stroke` px, no blink).
+/// The rename field over a tab's label rect `text`: a framed field with the text and
+/// a beam cursor (`stroke` px, no blink).
 pub(super) fn paint_rename(
     field: &TextField,
     text: Rect,

@@ -190,7 +190,7 @@ pub(super) struct BarPaint {
 
 /// The bar's rects and labels for a window `width` px wide. The active tab has
 /// the terminal background; a hovered inactive tab or button gets the hover bg
-/// (the Close button its own red); a hovered ✕ highlights only its box. The
+/// (the Close button its own red); a hovered tab ✕ highlights its box, not the tab. The
 /// active tab ends in an `underline` px line in `accent`, drawn after every
 /// background.
 #[allow(clippy::too_many_arguments)]

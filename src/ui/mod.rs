@@ -1,4 +1,4 @@
-//! Self-drawn UI chrome primitives: theme, icons and text layout.
+//! Pure chrome state and geometry (no GL).
 
 use std::time::Duration;
 

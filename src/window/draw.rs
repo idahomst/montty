@@ -329,9 +329,8 @@ pub(super) fn frame_clear(any_translucent: bool, bg: Rgb) -> [f32; 4] {
     }
 }
 
-/// The toast in a `win_w` × `win_h` window: TOAST_BG inside a `stroke` px TOAST_BORDER,
-/// its text in TOAST_TEXT, truncated to the toast. An info toast is PANEL_BG inside
-/// PANEL_BORDER with TEXT instead (not an error).
+/// The toast in a `win_w` × `win_h` window, in a `stroke` px frame, its text truncated
+/// to the toast. An info toast takes the panel's colors: it is not an error.
 pub(super) fn paint_toast(
     t: &Toast,
     win_w: i32,
@@ -470,10 +469,10 @@ pub(super) fn border_rects(r: Rect, s: i32) -> Vec<Rect> {
     .collect()
 }
 
-/// The pane overlay: OVERLAY_BG inside a `stroke` px OVERLAY_BORDER, the
-/// hovered button in HOVER (Close in CLOSE_HOVER, as in the bar) within the
-/// border, then the icons (`line` px strokes): Restore instead of Maximize while the
-/// pane is maximized. An empty overlay (tiny pane) paints nothing.
+/// The pane overlay in a `stroke` px frame, the hovered button highlighted within the
+/// border (Close in red, as in the bar), then the icons (`line` px strokes): Restore
+/// instead of Maximize while the pane is maximized. An empty overlay (tiny pane) paints
+/// nothing.
 pub(super) fn paint_overlay(
     o: &Overlay,
     hover: Option<OverlayTarget>,
