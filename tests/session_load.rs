@@ -1,6 +1,8 @@
 //! Turning a session document into split trees: what a loaded window is built from.
 
-use std::path::{Path, PathBuf};
+mod common;
+
+use std::path::Path;
 
 use montty::layout::{Orientation, Shape, SplitTree};
 use montty::session::{LeafDoc, SessionDoc, TabDoc, parse, read_session, to_json};
@@ -79,9 +81,8 @@ fn trees_keep_ratios_focus_titles_and_active_tab() {
 
 #[test]
 fn read_session_reports_why_it_cannot_open() {
-    let dir: PathBuf =
-        std::env::temp_dir().join(format!("montty-readsession-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
+    let tmp = common::TempDir::new("readsession");
+    let dir = tmp.to_path_buf();
     std::fs::create_dir_all(dir.join("sessions")).unwrap();
     std::fs::write(dir.join("sessions/ok.json"), to_json(&doc())).unwrap();
     std::fs::write(dir.join("sessions/bad.json"), "{\n \"version\": 2 }").unwrap();
@@ -97,5 +98,4 @@ fn read_session_reports_why_it_cannot_open() {
             .unwrap_err()
             .contains("no config directory")
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }

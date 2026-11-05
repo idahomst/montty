@@ -704,8 +704,8 @@ mod tests {
 
     #[test]
     fn missing_cwd_dropped_on_load() {
-        let dir = std::env::temp_dir().join(format!("montty-load-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = crate::testutil::TempDir::new("load");
+        let dir = tmp.to_path_buf();
         let file = dir.join("f");
         std::fs::write(&file, "").unwrap();
         let doc = doc_of([
@@ -727,7 +727,6 @@ mod tests {
             |d| d.is_dir(),
         );
         assert_eq!(gone[0].root.leaves()[0].cwd, None);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -767,8 +766,8 @@ mod tests {
 
     #[test]
     fn on_path_finds_executables_only() {
-        let dir = std::env::temp_dir().join(format!("montty-onpath-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = crate::testutil::TempDir::new("onpath");
+        let dir = tmp.to_path_buf();
         let exe = dir.join("ed1");
         std::fs::write(&exe, "").unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -779,6 +778,5 @@ mod tests {
         assert!(!on_path("plain", &path));
         assert!(!on_path("missing", &path));
         assert!(on_path(exe.to_str().unwrap(), OsStr::new("")));
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

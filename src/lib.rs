@@ -12,6 +12,8 @@ pub mod notify;
 pub mod render;
 pub mod session;
 pub mod term;
+#[cfg(test)]
+mod testutil;
 pub mod ui;
 pub mod window;
 pub mod window_menu;

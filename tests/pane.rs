@@ -1,3 +1,5 @@
+mod common;
+
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -282,8 +284,8 @@ fn pane_cwd_follows_shell() {
 
 #[test]
 fn cwd_of_deleted_dir_is_none() {
-    let dir = std::env::temp_dir().join(format!("montty-cwd-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let tmp = common::TempDir::new("cwd");
+    let dir = tmp.to_path_buf();
     let (tx, _rx) = mpsc::channel();
     let cmd = format!("cd {} && exec sleep 5", dir.display());
     let pane = Pane::spawn(21, &opts(&["sh", "-c", &cmd]), size(20, 5), Arc::new(tx)).unwrap();

@@ -3,35 +3,13 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+mod common;
+
+use common::TempDir as Tmp;
 use montty::config::watch::{Scope, Watcher};
-
-static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-/// A fresh temp dir named with the pid and a counter, removed on drop.
-struct Tmp(PathBuf);
-
-impl Tmp {
-    fn new() -> Tmp {
-        let p = std::env::temp_dir().join(format!(
-            "montty-watch-it-{}-{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        let _ = fs::remove_dir_all(&p);
-        fs::create_dir_all(&p).unwrap();
-        Tmp(p)
-    }
-}
-
-impl Drop for Tmp {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
 
 fn watcher(dirs: &[PathBuf]) -> (Watcher, Receiver<()>) {
     let (tx, rx) = mpsc::channel();
@@ -54,7 +32,7 @@ const FIRE: Duration = Duration::from_secs(2);
 
 #[test]
 fn watcher_fires_on_rename_save() {
-    let t = Tmp::new();
+    let t = Tmp::new("watch-it");
     // Written before the watcher starts: only the rename can fire it.
     fs::write(t.0.join("a.tmp"), "x = 1\n").unwrap();
     let (_w, rx) = watcher(std::slice::from_ref(&t.0));
@@ -64,7 +42,7 @@ fn watcher_fires_on_rename_save() {
 
 #[test]
 fn watcher_ignores_reads() {
-    let t = Tmp::new();
+    let t = Tmp::new("watch-it");
     fs::write(t.0.join("a.toml"), "x = 1\n").unwrap();
     let (_w, rx) = watcher(std::slice::from_ref(&t.0));
     // A reload reads every file and lists the dir: that must not fire (no reload loop).
@@ -75,7 +53,7 @@ fn watcher_ignores_reads() {
 
 #[test]
 fn symlink_target_dir_sees_only_targets() {
-    let t = Tmp::new();
+    let t = Tmp::new("watch-it");
     let target = t.0.join("config.toml");
     fs::write(&target, "").unwrap();
     let (mut w, rx) = watcher(&[]);
@@ -99,7 +77,7 @@ fn symlink_target_dir_sees_only_targets() {
 
 #[test]
 fn parent_dir_sees_only_config_dir_creation() {
-    let t = Tmp::new();
+    let t = Tmp::new("watch-it");
     let dir = t.0.join("montty");
     let (mut w, rx) = watcher(&[]);
     assert!(
@@ -115,8 +93,8 @@ fn parent_dir_sees_only_config_dir_creation() {
 
 #[test]
 fn set_watched_unwatches_dropped_dirs() {
-    let a = Tmp::new();
-    let b = Tmp::new();
+    let a = Tmp::new("watch-it");
+    let b = Tmp::new("watch-it");
     let (mut w, rx) = watcher(&[]);
     let both = [(a.0.clone(), Scope::All), (b.0.clone(), Scope::All)];
     assert!(w.set_watched(&both).is_empty());
@@ -133,7 +111,7 @@ fn set_watched_unwatches_dropped_dirs() {
 
 #[test]
 fn failing_dir_is_reported_once_until_it_recovers() {
-    let t = Tmp::new();
+    let t = Tmp::new("watch-it");
     let gone = t.0.join("gone");
     let (mut w, _rx) = watcher(&[]);
     let dirs = [(gone.clone(), Scope::All), (t.0.clone(), Scope::All)];

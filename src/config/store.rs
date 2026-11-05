@@ -443,35 +443,8 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    struct Tmp(PathBuf);
-
-    impl Tmp {
-        fn new() -> Tmp {
-            let p = std::env::temp_dir().join(format!(
-                "montty-store-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed)
-            ));
-            fs::create_dir_all(&p).unwrap();
-            Tmp(p)
-        }
-
-        fn write(&self, rel: &str, content: &str) {
-            let p = self.0.join(rel);
-            fs::create_dir_all(p.parent().unwrap()).unwrap();
-            fs::write(p, content).unwrap();
-        }
-    }
-
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::testutil::TempDir as Tmp;
 
     const SCHEME: &str = r##"{"name":"My","comment":"","foreground-color":"#111111",
         "background-color":"#222222","palette":["#000000","#000000","#000000","#000000",
@@ -480,7 +453,7 @@ mod tests {
 
     #[test]
     fn first_run_writes_default() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let (s, errs) = Store::load(&t.0, None);
         assert!(errs.is_empty(), "{errs:?}");
         let written = fs::read_to_string(t.0.join("profiles/default.toml")).unwrap();
@@ -490,7 +463,7 @@ mod tests {
 
     #[test]
     fn existing_profiles_not_overwritten() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/work.toml", "name = \"Work\"\n");
         let (s, errs) = Store::load(&t.0, None);
         assert!(errs.is_empty(), "{errs:?}");
@@ -501,7 +474,7 @@ mod tests {
 
     #[test]
     fn reload_reports_changed() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let (mut s, _) = Store::load(&t.0, None);
         t.write("profiles/default.toml", "font_size = 14\n");
         let r = s.reload();
@@ -513,7 +486,7 @@ mod tests {
 
     #[test]
     fn reload_reports_edits_of_broken_files() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/work.toml", "x\n");
         let (mut s, errors) = Store::load(&t.0, None);
         assert_eq!(errors.len(), 1);
@@ -531,7 +504,7 @@ mod tests {
 
     #[test]
     fn scheme_change_marks_users() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("schemes/my.json", SCHEME);
         t.write("profiles/default.toml", "scheme = \"my\"\n");
         t.write("profiles/other.toml", "");
@@ -546,7 +519,7 @@ mod tests {
 
     #[test]
     fn scheme_found_by_display_name() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("schemes/my.json", SCHEME);
         t.write("profiles/default.toml", "scheme = \"MY\"\n");
         let (s, errs) = Store::load(&t.0, None);
@@ -556,7 +529,7 @@ mod tests {
 
     #[test]
     fn unknown_scheme_falls_back_to_tango() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write(
             "profiles/default.toml",
             "font_size = 13\nscheme = \"nope\"\n",
@@ -572,7 +545,7 @@ mod tests {
 
     #[test]
     fn reload_keeps_last_good_on_parse_error() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let (mut s, _) = Store::load(&t.0, None);
         let before = s.profile("default").profile.font_size;
         t.write("profiles/default.toml", "font_size = ");
@@ -586,7 +559,7 @@ mod tests {
 
     #[test]
     fn reload_recovers_after_fix() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let (mut s, _) = Store::load(&t.0, None);
         t.write("profiles/default.toml", "font_size = ");
         s.reload();
@@ -598,7 +571,7 @@ mod tests {
 
     #[test]
     fn removed_profile_reported() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/default.toml", "");
         t.write("profiles/work.toml", "font_size = 16\n");
         let (mut s, _) = Store::load(&t.0, None);
@@ -612,7 +585,7 @@ mod tests {
 
     #[test]
     fn editor_leftovers_ignored() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/default.toml", "");
         let (mut s, _) = Store::load(&t.0, None);
         for f in [
@@ -630,7 +603,7 @@ mod tests {
 
     #[test]
     fn global_changes_reported() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let (mut s, _) = Store::load(&t.0, None);
         t.write("config.toml", "default_profile = \"x\"\n");
         let r = s.reload();
@@ -650,7 +623,7 @@ mod tests {
 
     #[test]
     fn unreadable_dir_runs_on_defaults() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("file", "");
         let (s, errs) = Store::load(&t.0.join("file"), None);
         assert_eq!(errs.len(), 1, "{errs:?}");
@@ -669,7 +642,7 @@ mod tests {
         }
         // A read-only `profiles/`: the default profile can't be written, and no reload
         // fixes that; a broken config.toml is a file error.
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("config.toml", "dim_amount = 9\n");
         fs::create_dir(t.0.join("profiles")).unwrap();
         fs::set_permissions(t.0.join("profiles"), fs::Permissions::from_mode(0o555)).unwrap();
@@ -685,7 +658,7 @@ mod tests {
 
     #[test]
     fn missing_default_profile_falls_back() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("config.toml", "default_profile = \"missing\"\n");
         t.write("profiles/default.toml", "");
         t.write("profiles/work.toml", "");
@@ -712,7 +685,7 @@ mod tests {
     #[test]
     fn unset_default_profile_falls_back_silently() {
         // `default.toml` is gone and `default_profile` isn't set: nothing to report.
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/work.toml", "");
         let (s, errs) = Store::load(&t.0, None);
         assert!(errs.is_empty(), "{errs:?}");
@@ -721,7 +694,7 @@ mod tests {
 
     #[test]
     fn invalid_global_keeps_chain_working() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("config.toml", "default_profile = ");
         t.write("profiles/work.toml", "");
         let (s, errs) = Store::load(&t.0, None);
@@ -733,7 +706,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn first_run_does_not_write_through_dangling_symlink() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         let target = t.0.join("outside.toml");
         fs::create_dir_all(t.0.join("cfg/profiles")).unwrap();
         std::os::unix::fs::symlink(&target, t.0.join("cfg/profiles/default.toml")).unwrap();
@@ -745,7 +718,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn symlinked_profile_and_dir_load_and_reload() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("real/profiles/default.toml", "");
         t.write("outside.toml", "name = \"Out\"\n");
         let real = t.0.join("real");
@@ -761,7 +734,7 @@ mod tests {
 
     #[test]
     fn default_stem_follows_reload() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/default.toml", "");
         t.write("profiles/work.toml", "font_size = 16\n");
         let (mut s, _) = Store::load(&t.0, None);
@@ -780,7 +753,7 @@ mod tests {
 
     #[test]
     fn previous_profile_is_before_reload() {
-        let t = Tmp::new();
+        let t = Tmp::new("store");
         t.write("profiles/default.toml", "font_size = 12\n");
         t.write("profiles/work.toml", "font_size = 16\n");
         let (mut s, _) = Store::load(&t.0, None);

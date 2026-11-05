@@ -275,7 +275,6 @@ impl Debounce {
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -353,32 +352,11 @@ mod tests {
         );
     }
 
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    struct Tmp(PathBuf);
-
-    impl Tmp {
-        fn new() -> Tmp {
-            let p = std::env::temp_dir().join(format!(
-                "montty-watch-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed)
-            ));
-            let _ = fs::remove_dir_all(&p);
-            fs::create_dir_all(&p).unwrap();
-            Tmp(p)
-        }
-    }
-
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::testutil::TempDir as Tmp;
 
     #[test]
     fn watch_dirs_existing_subdirs() {
-        let t = Tmp::new();
+        let t = Tmp::new("watch");
         let dir = t.0.join("montty");
         // No config dir yet: its parent, for the dir's own name only.
         assert_eq!(
@@ -409,7 +387,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn watch_dirs_follow_symlinked_files() {
-        let t = Tmp::new();
+        let t = Tmp::new("watch");
         let dir = t.0.join("montty");
         let dots = t.0.join("dotfiles");
         let other = t.0.join("other");
@@ -459,7 +437,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn image_files_watched_by_name() {
-        let t = Tmp::new();
+        let t = Tmp::new("watch");
         let dir = t.0.join("montty");
         let pics = t.0.join("pics");
         fs::create_dir_all(&dir).unwrap();

@@ -376,6 +376,7 @@ pub fn write_atomic(dir: &Path, rel: &Path, contents: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::layout::{Orientation, Shape};
+    use crate::testutil::TempDir;
 
     const EXAMPLE: &str = r#"{
   "version": 1,
@@ -395,13 +396,6 @@ mod tests {
 
     fn err(src: &str) -> ConfigError {
         parse(src, file()).unwrap_err()
-    }
-
-    fn temp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("montty-session-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
     }
 
     #[test]
@@ -621,7 +615,7 @@ mod tests {
 
     #[test]
     fn list_skips_last_and_non_json() {
-        let d = temp("list");
+        let d = TempDir::new("session-list");
         assert!(list_sessions(&d).is_empty());
         let s = d.join("sessions");
         std::fs::create_dir_all(&s).unwrap();
@@ -638,12 +632,11 @@ mod tests {
         }
         std::fs::create_dir(s.join("dir.json")).unwrap();
         assert_eq!(list_sessions(&d), ["a", "b", "práce"]);
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn listing_follows_symlinked_files() {
-        let d = temp("symlink");
+        let d = TempDir::new("session-symlink");
         let s = d.join("sessions");
         std::fs::create_dir_all(&s).unwrap();
         let store = d.join("dotfiles");
@@ -654,12 +647,11 @@ mod tests {
         std::os::unix::fs::symlink(store.join("gone.json"), s.join("dangling.json")).unwrap();
         std::os::unix::fs::symlink(store.join("adir"), s.join("dirlink.json")).unwrap();
         assert_eq!(list_sessions(&d), ["work"]);
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn write_atomic_replaces_whole_file() {
-        let d = temp("atomic");
+        let d = TempDir::new("session-atomic");
         let rel = session_file("w").unwrap();
         write_atomic(&d, &rel, &"x".repeat(1000)).unwrap();
         write_atomic(&d, &rel, "short").unwrap();
@@ -669,6 +661,5 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, ["w.json"]);
-        let _ = std::fs::remove_dir_all(&d);
     }
 }
