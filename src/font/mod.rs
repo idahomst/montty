@@ -160,6 +160,17 @@ fn shared_file(path: &Path) -> Option<Data> {
     Some(data)
 }
 
+/// The face's file data (mapped once per file, see `shared_file`) and its index in it.
+fn face_data(db: &fontdb::Database, id: fontdb::ID) -> Option<(Data, u32)> {
+    let (source, index) = db.face_source(id)?;
+    let data: Data = match source {
+        fontdb::Source::Binary(d) => d,
+        fontdb::Source::SharedFile(_, d) => d,
+        fontdb::Source::File(path) => shared_file(&path)?,
+    };
+    Some((data, index))
+}
+
 struct Face {
     is_color_emoji: bool,
     data: Data,
@@ -169,12 +180,7 @@ struct Face {
 
 impl Face {
     fn load(db: &fontdb::Database, id: fontdb::ID) -> Option<Face> {
-        let (source, index) = db.face_source(id)?;
-        let data: Data = match source {
-            fontdb::Source::Binary(d) => d,
-            fontdb::Source::SharedFile(_, d) => d,
-            fontdb::Source::File(path) => shared_file(&path)?,
-        };
+        let (data, index) = face_data(db, id)?;
         let font = FontRef::from_index((*data).as_ref(), index as usize)?;
         let (offset, key) = (font.offset, font.key);
         let is_color_emoji = db
@@ -210,6 +216,10 @@ pub struct FontSet {
     fallback_by_id: HashMap<fontdb::ID, usize>,
     /// Result of fallback search per char, including failed searches.
     fallback: HashMap<char, Option<usize>>,
+    /// Every db face's data, in `db.faces()` order, mapped on the first scan and kept:
+    /// `with_face_data` maps and unmaps the file on each call, which made a scan of a
+    /// few hundred faces take ~10 ms per uncovered char instead of ~50 µs.
+    scan_faces: Option<Vec<Option<(Data, u32)>>>,
     ctx: ScaleContext,
     db_scans: usize,
 }
@@ -280,6 +290,7 @@ impl FontSet {
             fallback_by_id: HashMap::new(),
             fallback: HashMap::new(),
             ctx: ScaleContext::new(),
+            scan_faces: None,
             db_scans: 0,
         })
     }
@@ -340,18 +351,17 @@ impl FontSet {
     fn scan_db(&mut self, ch: char) -> Option<fontdb::ID> {
         self.db_scans += 1;
         let emoji = is_emoji_cp(ch);
+        let db = &self.db;
+        let faces = self
+            .scan_faces
+            .get_or_insert_with(|| db.faces().map(|f| face_data(db, f.id)).collect());
         let mut best: Option<(u32, fontdb::ID)> = None;
-        for f in self.db.faces() {
+        for (f, data) in db.faces().zip(faces.iter()) {
             let is_emoji_face = f.families.iter().any(|(n, _)| n == "Noto Color Emoji");
-            if emoji && !is_emoji_face && best.is_some_and(|(s, _)| s >= 100) {
-                continue;
-            }
-            let covered = self
-                .db
-                .with_face_data(f.id, |d, i| {
-                    FontRef::from_index(d, i as usize).is_some_and(|f| f.charmap().map(ch) != 0)
-                })
-                .unwrap_or(false);
+            let covered = data.as_ref().is_some_and(|(d, i)| {
+                FontRef::from_index((**d).as_ref(), *i as usize)
+                    .is_some_and(|f| f.charmap().map(ch) != 0)
+            });
             if !covered {
                 continue;
             }
