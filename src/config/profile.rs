@@ -82,7 +82,9 @@ impl Default for Profile {
             cursor_shape: CursorShapeCfg::Block,
             cursor_blink: false,
             shell: None,
-            login_shell: false,
+            // macOS terminals start login shells: there ~/.bash_profile (or .zprofile) is
+            // where users set up their shell.
+            login_shell: cfg!(target_os = "macos"),
             command: None,
             background_image: None,
         }
@@ -451,7 +453,7 @@ padding = 4                 # pixels around the terminal, 0 to 100
 scrollback = 10000          # lines of history, 0 to 1000000
 cursor_shape = "block"      # "block", "beam" or "underline"
 cursor_blink = false        # blink the cursor while typing
-login_shell = false         # start the shell as a login shell (-l)
+# login_shell = true        # start the shell as a login shell (-l); default: true on macOS
 # shell = "/bin/zsh"        # default: $SHELL, else /bin/sh
 # command = ["htop"]        # run this instead of a shell
 
@@ -717,7 +719,11 @@ opacity = 0.5
 
     #[test]
     fn argv_rules() {
-        let d = Profile::default();
+        assert_eq!(Profile::default().login_shell, cfg!(target_os = "macos"));
+        let d = Profile {
+            login_shell: false,
+            ..Profile::default()
+        };
         assert_eq!(d.argv(Some("/bin/zsh")), ["/bin/zsh"]);
         assert_eq!(d.argv(None), ["/bin/sh"]);
         assert_eq!(d.argv(Some("")), ["/bin/sh"]);
@@ -734,12 +740,12 @@ opacity = 0.5
         assert_eq!(cmd.argv(Some("/bin/zsh")), ["htop"]);
         let empty_cmd = Profile {
             command: Some(vec![]),
-            ..Profile::default()
+            ..d.clone()
         };
         assert_eq!(empty_cmd.argv(Some("/bin/zsh")), ["/bin/zsh"]);
         let sh = Profile {
             shell: Some("fish".into()),
-            ..Profile::default()
+            ..d.clone()
         };
         assert_eq!(sh.argv(Some("/bin/zsh")), ["fish"]);
     }

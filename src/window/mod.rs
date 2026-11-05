@@ -19,6 +19,8 @@ mod sessions;
 mod sizes;
 pub use sessions::{StartupInit, startup_init};
 mod tabs;
+#[cfg(target_os = "macos")]
+mod titlebar;
 
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -643,7 +645,7 @@ impl Window {
         // The window stays hidden until the first pane has spawned, so a bad command
         // fails without a window flash while the child still gets the real WINDOWID.
         // (Wayland ignores `visible`, but shows nothing before the first frame.)
-        // montty draws its own top bar: no system title bar or frame.
+        // montty draws its own top bar: no system title bar or frame (on macOS, see below).
         let attrs = winit::window::Window::default_attributes()
             .with_title(TITLE)
             .with_window_icon(icon::window_icon())
@@ -663,7 +665,21 @@ impl Window {
                 attrs, "montty", "montty",
             )
         };
+        // A frameless macOS window has no resize edges: keep the frame, with its title bar
+        // empty, transparent and under montty's bar.
+        #[cfg(target_os = "macos")]
+        let attrs = {
+            use winit::platform::macos::WindowAttributesExtMacOS;
+            attrs
+                .with_decorations(true)
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_titlebar_buttons_hidden(true)
+                .with_fullsize_content_view(true)
+        };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
+        #[cfg(target_os = "macos")]
+        titlebar::keep_bar_presses();
         let watcher = dir.and_then(|d| {
             let (w, errs) = start_watcher(&d, window.id(), sink.clone());
             for e in &errs {
@@ -2328,9 +2344,17 @@ mod tests {
         let o = pane_options(&p, None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["top".into(), "-d1".into()]));
         assert!(o.runs_command);
-        // Defaults: $SHELL, block cursor without blink, 10 000 lines.
+        // Defaults: $SHELL (a login shell on macOS), block cursor without blink, 10 000 lines.
         let o = pane_options(&Profile::default(), None, None, None, None, true);
-        assert_eq!(o.command, Some(vec!["/bin/sh".into()]));
+        let shell: &[&str] = if cfg!(target_os = "macos") {
+            &["/bin/sh", "-l"]
+        } else {
+            &["/bin/sh"]
+        };
+        assert_eq!(
+            o.command,
+            Some(shell.iter().map(|s| s.to_string()).collect())
+        );
         assert_eq!(o.scrollback, 10_000);
         assert_eq!(
             (o.cursor.shape, o.cursor.blinking),

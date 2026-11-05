@@ -245,7 +245,7 @@ selection there, so each Shift+click or Shift+drag starts a new one.
 
 ### Links
 
-Ctrl+click opens a link with `xdg-open`, even while the program has mouse reporting on. A link is either an OSC 8
+Ctrl+click opens a link with `xdg-open` (`open` on macOS), even while the program has mouse reporting on. A link is either an OSC 8
 hyperlink on the cell or, failing that, a URL found in the text under the pointer (a URL that wraps onto the next
 line counts). Text starting with `www.` also counts as a URL (not when it follows a letter, digit, `.`, `-`, `_`,
 `/` or `@`) and opens as `https://` plus the text. Only these schemes open: `http`, `https`, `ftp`, `file`,
@@ -347,7 +347,7 @@ opacity = 0.35
 | `cursor_shape` | string | `"block"` | `"block"`, `"beam"`, `"underline"` |
 | `cursor_blink` | bool | `false` | blink the cursor, see below |
 | `shell` | string | `$SHELL`, else `/bin/sh` | a program path |
-| `login_shell` | bool | `false` | `true` starts the shell with `-l` |
+| `login_shell` | bool | `false` (`true` on macOS) | `true` starts the shell with `-l` |
 | `command` | array of strings | none | `["htop"]` runs this instead of a shell; no empty arguments; wins over `shell` |
 | `[colors]` | table | none | see below |
 | `[background_image]` | table | none | see below |
@@ -543,9 +543,9 @@ In order: `New tab`, `New window`, `Save session…`, `Open session ▸`, `Edit 
 `Edit config` opens `config.toml` (created empty first if it doesn't exist) in a new tab running the first of
 `$VISUAL`, `$EDITOR` and Debian's `editor` (the system default, `update-alternatives --config editor`) that is set
 and on `PATH`; a value may carry arguments (`nvim -p`). The tab closes when the editor exits. Without any of them
-it runs `xdg-open` on the file instead. The variables are read from montty's own environment, so set them in
-`~/.profile` (or your desktop's environment), not only in `~/.bashrc`. `Open config folder` runs `xdg-open` on the
-config folder, and `Reload config` re-reads everything now, as if a file had changed.
+it runs `xdg-open` on the file instead (`open -t` on macOS). The variables are read from montty's own environment,
+so set them in `~/.profile` (or your desktop's environment), not only in `~/.bashrc`. `Open config folder` runs
+`xdg-open` (`open` on macOS) on the config folder, and `Reload config` re-reads everything now, as if a file had changed.
 
 ### The session file
 

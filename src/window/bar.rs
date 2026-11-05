@@ -421,9 +421,10 @@ impl Window {
         edge_px(self.scale)
     }
 
-    /// Whether the window can be resized from its edges now.
+    /// Whether montty's edge zone resizes the window now. Never on macOS: there the native
+    /// frame resizes it (winit can't start an edge resize).
     fn edges_resizable(&self) -> bool {
-        !self.maximized && self.window.fullscreen().is_none()
+        !cfg!(target_os = "macos") && !self.maximized && self.window.fullscreen().is_none()
     }
 
     /// The bar item the pointer is over (`None` in the edge zone, below the bar,

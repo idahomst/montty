@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use winit::dpi::LogicalSize;
 use winit::monitor::MonitorHandle;
 
-use super::links::open_detached;
+use super::links::{open_detached, open_text_detached};
 use super::modal::{MenuKind, Modal, PromptPurpose, profile_menu_limits, target_alive};
 use super::tabs::Tab;
 use super::{PaneStyle, Window};
@@ -483,7 +483,7 @@ impl Window {
         let candidates = [visual.as_deref(), editor.as_deref(), Some("editor")];
         match editor_command(&candidates, file, |p| on_path(p, &path)) {
             Some(command) => self.new_tab_with(Some(dir), Some(command)),
-            None => open_detached(file.as_os_str()),
+            None => open_text_detached(file.as_os_str()),
         }
     }
 

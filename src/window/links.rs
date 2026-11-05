@@ -1,5 +1,5 @@
 //! Links under the pointer: while Ctrl is held the link there is underlined (the
-//! pointer becomes a hand) and a Ctrl+left press opens it with `xdg-open`.
+//! pointer becomes a hand) and a Ctrl+left press opens it with `xdg-open` (`open` on macOS).
 
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
@@ -172,10 +172,30 @@ pub(super) fn pointer_icon(link: bool, divider: Option<Orientation>) -> CursorIc
     }
 }
 
+/// The desktop's opener for URIs, files and folders.
+#[cfg(not(target_os = "macos"))]
+const OPENER: &str = "xdg-open";
+#[cfg(target_os = "macos")]
+const OPENER: &str = "open";
+
 /// Hand `arg` (a URI or a path) to the desktop's opener, detached: no stdio, reaped on a
 /// thread.
 pub(super) fn open_detached(arg: &OsStr) {
-    let child = Command::new("xdg-open")
+    spawn_opener(&[], arg);
+}
+
+/// A text file in the desktop's editor. macOS's `open` picks an app by file type (often
+/// none for `.toml`), so it gets `-t`: the default text editor.
+pub(super) fn open_text_detached(file: &OsStr) {
+    #[cfg(target_os = "macos")]
+    spawn_opener(&["-t"], file);
+    #[cfg(not(target_os = "macos"))]
+    spawn_opener(&[], file);
+}
+
+fn spawn_opener(flags: &[&str], arg: &OsStr) {
+    let child = Command::new(OPENER)
+        .args(flags)
         .arg(arg)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -187,7 +207,7 @@ pub(super) fn open_detached(arg: &OsStr) {
                 let _ = child.wait();
             });
         }
-        Err(e) => eprintln!("montty: xdg-open: {e}"),
+        Err(e) => eprintln!("montty: {OPENER}: {e}"),
     }
 }
 
