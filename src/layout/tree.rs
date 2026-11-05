@@ -1115,4 +1115,77 @@ mod tests {
         let m = s.map(&mut |id| id * 10);
         assert_eq!(m.leaves(), [&10, &20, &30, &40]);
     }
+
+    fn split<L>(ratio: f32, a: Shape<L>, b: Shape<L>) -> Shape<L> {
+        Shape::Split {
+            orientation: Orientation::Horizontal,
+            ratio,
+            a: Box::new(a),
+            b: Box::new(b),
+        }
+    }
+
+    #[test]
+    fn shape_map_changes_payload_and_keeps_structure() {
+        let s = split(
+            0.3,
+            Shape::Leaf(1),
+            split(0.7, Shape::Leaf(2), Shape::Leaf(3)),
+        );
+        let mut seen = Vec::new();
+        let m = s.map(&mut |n| {
+            seen.push(n);
+            format!("p{n}")
+        });
+        // Visited depth-first, `a` before `b`.
+        assert_eq!(seen, [1, 2, 3]);
+        let expected = split(
+            0.3,
+            Shape::Leaf("p1".to_string()),
+            split(
+                0.7,
+                Shape::Leaf("p2".to_string()),
+                Shape::Leaf("p3".to_string()),
+            ),
+        );
+        assert_eq!(m, expected);
+    }
+
+    #[test]
+    fn shape_leaves_of_a_single_leaf_and_a_nested_split() {
+        assert_eq!(Shape::Leaf('x').leaves(), [&'x']);
+        let s = split(
+            0.5,
+            split(0.5, Shape::Leaf('a'), Shape::Leaf('b')),
+            Shape::Leaf('c'),
+        );
+        assert_eq!(s.leaves(), [&'a', &'b', &'c']);
+    }
+
+    #[test]
+    fn from_shape_clamps_out_of_range_ratios() {
+        let t = SplitTree::from_shape(split(
+            2.0,
+            split(-1.0, Shape::Leaf(1), Shape::Leaf(2)),
+            Shape::Leaf(3),
+        ));
+        let Shape::Split { ratio, a, .. } = t.shape() else {
+            panic!("root is a split");
+        };
+        assert_eq!(ratio, 1.0);
+        let Shape::Split { ratio, .. } = *a else {
+            panic!("child is a split");
+        };
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn from_shape_nan_ratio_lays_out_without_panic() {
+        let t = SplitTree::from_shape(split(f32::NAN, Shape::Leaf(1), Shape::Leaf(2)));
+        let l = t.layout(AREA);
+        assert_eq!(l.len(), 2);
+        // NaN saturates to 0 px, so the first pane gets its minimum.
+        assert_eq!(l[0].1.w, t.min_extent().0);
+        assert!(t.dividers(AREA).len() == 1);
+    }
 }
