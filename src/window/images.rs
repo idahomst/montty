@@ -360,9 +360,8 @@ impl Window {
         for e in &errs {
             eprintln!("montty: config watcher: {e}");
         }
-        // Only dirs that newly fail come back, so a dir that keeps failing doesn't show a
-        // toast on every reload. Config errors, startup and spawn problems stay up: the
-        // watcher's toast would hide them (the stderr line remains).
+        // Only dirs that newly fail come back (no toast per reload); a more important
+        // toast stays up.
         let busy = self.toast.as_ref().is_some_and(|t| {
             !matches!(
                 t.source,
@@ -419,6 +418,7 @@ impl Window {
             if self.images.is_current(&path, id) {
                 return self.start_helper((path, id));
             }
+            // The skipped job hands its slot to the next one.
             next = self.decode_gate.finish();
             // Clears the stale request; a file that changed meanwhile is requested again.
             if let Loaded::Load(id) = self.images.loaded(&path, id) {

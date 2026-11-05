@@ -343,12 +343,10 @@ impl Window {
         }
     }
 
-    /// The next match, toward newer text.
     pub(super) fn find_next(&mut self) {
         self.find_step(Direction::Right);
     }
 
-    /// The previous match, toward older text.
     pub(super) fn find_prev(&mut self) {
         self.find_step(Direction::Left);
     }

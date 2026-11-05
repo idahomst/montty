@@ -561,9 +561,10 @@ pub struct Window {
     quiet_resize_until: Option<Instant>,
     /// The focused pane's cursor blink cycle.
     blink: Blink,
-    /// The focused pane's effective cursor style blinks (read at each frame).
+    /// The focused pane's cursor blinks now (its DECSCUSR style, read at each frame);
+    /// arms the blink timer.
     blink_on: bool,
-    /// Whether the last frame drew the cursor (the blink phase it showed).
+    /// Whether the last frame drew the cursor: `on_timers` compares the clock's phase to it.
     blink_shown: bool,
     panes: HashMap<PaneId, Pane>,
     /// Last size sent to each pane's PTY.

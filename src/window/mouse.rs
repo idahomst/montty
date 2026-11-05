@@ -534,18 +534,14 @@ impl Window {
         )
     }
 
-    /// Pane overlay inset: `edge_px(scale)` (4 px at scale 1), so HiDPI keeps
-    /// the same look; it also pads the buttons over a cell. It equals the
-    /// edge-resize zone's width, so the overlay never overlaps that zone.
+    /// Pane overlay inset: the edge-resize zone's width, so the overlay never overlaps it.
     pub(super) fn overlay_inset(&self) -> i32 {
         edge_px(self.scale)
     }
 
-    /// The overlay of the pane under the pointer, with that pane and the
-    /// hovered button. None while a modal is open or a divider is dragged,
-    /// off the panes (over the bar, outside the window), after a key press
-    /// until the pointer moves again, or in a pane too small for it.
-    /// (No tabs left: the overlay's Close just closed the last pane.)
+    /// The overlay of the pane under the pointer, with that pane and the hovered button.
+    /// None off the panes, during a modal or divider drag, after a key until the pointer
+    /// moves, or in a pane too small for it.
     pub(super) fn overlay_at_pointer(&self) -> Option<(PaneId, Overlay, Option<OverlayTarget>)> {
         if self.tabs.is_empty()
             || self.modal_open()
@@ -584,11 +580,9 @@ impl Window {
         }
     }
 
-    /// A press on an overlay button is consumed (no divider drag or pane
-    /// click). With `pane_drag` on (and no pane maximized, and several panes) a left press only starts a
-    /// `PaneDrag`: the button acts on release, unless the pointer moved far enough to
-    /// drag the pane. Otherwise a left press acts at once (`overlay_click`).
-    /// True when consumed.
+    /// A press on an overlay button; true when consumed. Where the pane drag is offered a
+    /// left press only starts a `PaneDrag` (the button acts on release unless the pane is
+    /// dragged); otherwise it acts at once.
     fn overlay_press(&mut self, button: MouseButton) -> bool {
         let Some((id, o, Some(target))) = self.overlay_at_pointer() else {
             return false;

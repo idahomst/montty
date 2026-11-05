@@ -1257,12 +1257,9 @@ impl Window {
             .map(|t| t.text_rect)
     }
 
-    /// A button press while a modal is open; always consumed (no tab switch,
-    /// pane focus or window drag). A left press on a menu row chooses it; a
-    /// press outside the menu or panel closes it. A press outside the rename
-    /// field commits the rename, as Enter does (the usual in-place edit
-    /// behaviour); inside it does nothing. A left press on a prompt button
-    /// answers it; elsewhere the prompt stays (it needs an answer).
+    /// A button press while a modal is open, always consumed. Outside a menu or panel it
+    /// closes it, outside the rename field it commits as Enter does; a prompt stays until
+    /// a button answers it.
     pub(super) fn modal_press(&mut self, button: MouseButton) {
         self.mouse.clicks.clear();
         if self.dismiss_stale_modal() {

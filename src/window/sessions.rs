@@ -467,9 +467,8 @@ impl Window {
         });
     }
 
-    /// `Edit config`: `config.toml` (created empty when missing) in a terminal editor
-    /// (`$VISUAL`, `$EDITOR`, Debian's `editor`) in a new tab; without one, in the desktop's
-    /// editor.
+    /// `Edit config`: `config.toml` (created empty when missing) in an editor (see
+    /// `open_in_editor`).
     pub(super) fn edit_config(&mut self) {
         let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
             self.error_toast(NO_CONFIG_DIR);
@@ -538,7 +537,7 @@ impl Window {
         self.open_in_editor(dir, &file);
     }
 
-    /// `file` in a terminal editor (`$VISUAL`, `$EDITOR`, Debian's `editor`) in a new tab
+    /// `file` in a terminal editor (see `editor_command`) in a new tab
     /// starting in `dir`; without one, in the desktop's editor.
     fn open_in_editor(&mut self, dir: PathBuf, file: &Path) {
         let visual = std::env::var("VISUAL").ok();

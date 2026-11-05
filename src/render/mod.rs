@@ -167,13 +167,8 @@ impl Renderer {
             gl.viewport(0, 0, self.width as i32, self.height as i32);
             gl.disable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
-            // Sources are straight (non-premultiplied) alpha. The framebuffer holds
-            // premultiplied alpha, which is what X11 and Wayland compositors expect:
-            //   rgb = src.rgb·src.a + dst.rgb·(1 − src.a),  a = src.a + dst.a·(1 − src.a)
-            // is exactly premultiplied "over" with the source premultiplied (src.rgb·src.a,
-            // src.a). A transparent (0,0,0,0) or opaque clear is valid premultiplied, and
-            // "over" keeps every pixel valid (rgb ≤ a), so translucent panes, the dim, the
-            // overlay and glyph coverage all composite correctly. Over an opaque dst, a stays 1.
+            // Straight-alpha sources, premultiplied framebuffer (what X11 and Wayland
+            // compositors expect): this is premultiplied "over", which keeps rgb ≤ a.
             gl.blend_func_separate(
                 glow::SRC_ALPHA,
                 glow::ONE_MINUS_SRC_ALPHA,
@@ -200,15 +195,9 @@ impl Renderer {
         focused: bool,
         default_bg_alpha: u8,
     ) {
-        // If the atlas clears or grows mid-build, glyphs fetched earlier are stale: rebuild.
-        // Panes with other fonts share the atlas, and a later pane's build may clear it and
-        // upload over this pane's glyphs. That is fine: this pane's draw call is issued
-        // below with the UVs valid now, and GL runs a texture upload after the draws issued
-        // before it, so only glyphs fetched within one build can go stale. Growth
-        // reallocates the texture (tex_image_2d) but is ordered the same way: draws issued
-        // earlier carry their own atlas_size uniform and sample the old storage, and the
-        // size below is read after the rebuild loop, so this pane's draw sees the new one.
-        // Up to three builds: a first fill clears, a second fill in the same frame grows.
+        // An atlas clear or growth mid-build makes this build's earlier glyphs stale: rebuild,
+        // up to three times (a first fill clears, a second grows). Draws already issued are
+        // safe: GL runs a texture upload or reallocation after them.
         for _ in 0..3 {
             let generation = self.atlas.generation();
             let atlas = &mut self.atlas;

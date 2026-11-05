@@ -121,6 +121,7 @@ pub fn parse_report(payload: &str) -> Option<Report> {
             "msg" => {
                 msg = Some(decode_text(value, MAX_MSG_ENCODED, MAX_MSG)?).filter(|m| !m.is_empty())
             }
+            // Not shown, but a malformed title rejects the report like any other field.
             "title" => {
                 decode_text(value, MAX_TITLE_ENCODED, MAX_TITLE)?;
             }

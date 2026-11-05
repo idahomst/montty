@@ -294,7 +294,6 @@ pub(super) fn icon_line_px(scale: f64) -> f32 {
 }
 
 impl Window {
-    /// Bar metrics for the current font and scale.
     pub(super) fn bar_metrics(&self) -> BarMetrics {
         BarMetrics::new(&self.ui_metrics, self.scale)
     }
@@ -399,8 +398,6 @@ impl Window {
         self.renderer.draw_shapes(&p.shapes);
     }
 
-    /// Edge-resize zone width: `edge_px(scale)` (4 px at scale 1), the
-    /// same as the pane overlay's inset.
     fn edge_border(&self) -> i32 {
         edge_px(self.scale)
     }

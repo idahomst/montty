@@ -93,6 +93,8 @@ impl Snapshot {
             default_bg: true,
             link: false,
         };
+        // Cells are written by index below; one the iterator doesn't yield stays blank
+        // instead of keeping the last frame's content.
         self.cells.clear();
         self.cells.resize(self.cols * self.lines, blank);
         self.zerowidth.clear();

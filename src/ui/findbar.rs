@@ -6,7 +6,8 @@ use crate::input::Mods;
 use crate::layout::Rect;
 use winit::keyboard::{Key, NamedKey};
 
-/// Escaped in the query so the search stays literal.
+/// Escaped in the query so the search stays literal. The same set `regex_syntax::escape`
+/// uses: `#&-~` are meta in `(?x)` mode and in class set operations.
 const META: &str = r"\.+*?()|[]{}^$#&-~";
 
 pub struct FindBar {

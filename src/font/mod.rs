@@ -433,6 +433,8 @@ impl FontSet {
             return None;
         }
         match image.content {
+            // The atlas is RGBA for color glyphs; a mask keeps its coverage in alpha, which
+            // the shader tints with the cell's fg.
             Content::Mask => {
                 let mut data = Vec::with_capacity(image.data.len() * 4);
                 for &a in &image.data {

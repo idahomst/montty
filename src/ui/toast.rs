@@ -44,7 +44,6 @@ pub struct Toast {
 }
 
 /// ` (+N more)` for `total` messages shown as one (the first), or nothing for 0 or 1.
-/// The one place that builds this suffix, for config and image errors.
 pub fn more_suffix(total: usize) -> String {
     match total.saturating_sub(1) {
         0 => String::new(),

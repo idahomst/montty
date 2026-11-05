@@ -138,10 +138,7 @@ impl Window {
                 };
                 // Unfocused panes (and every pane of an unfocused window) get a hollow cursor.
                 let focused = self.window_focused && id == focused_id;
-                // Only the focused pane blinks: in the hidden phase the cursor isn't drawn.
-                // The frame also records what it found and drew: `blink_on` (does the focused
-                // pane's cursor blink now? it follows the program's DECSCUSR) arms the blink
-                // timer, and `blink_shown` is what `on_timers` compares the clock's phase to.
+                // Only the focused pane blinks; the hidden phase draws no cursor.
                 if focused {
                     self.blink_on = self.snapshot.blinking;
                     self.blink_shown = !self.blink_on || self.blink.visible(began);
