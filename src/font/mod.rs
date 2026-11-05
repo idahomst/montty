@@ -171,6 +171,48 @@ fn face_data(db: &fontdb::Database, id: fontdb::ID) -> Option<(Data, u32)> {
     Some((data, index))
 }
 
+/// The chars a face maps to a glyph, as sorted, disjoint, inclusive ranges.
+#[derive(Default)]
+struct Coverage(Vec<(u32, u32)>);
+
+impl Coverage {
+    /// Empty when the face can't be read.
+    fn of(db: &fontdb::Database, id: fontdb::ID) -> Coverage {
+        let Some((data, index)) = face_data(db, id) else {
+            return Coverage::default();
+        };
+        let Some(font) = FontRef::from_index((*data).as_ref(), index as usize) else {
+            return Coverage::default();
+        };
+        let mut cps = Vec::new();
+        font.charmap().enumerate(|cp, glyph| {
+            if glyph != 0 {
+                cps.push(cp);
+            }
+        });
+        Coverage::from_chars(cps)
+    }
+
+    fn from_chars(mut cps: Vec<u32>) -> Coverage {
+        cps.sort_unstable();
+        let mut ranges: Vec<(u32, u32)> = Vec::new();
+        for cp in cps {
+            match ranges.last_mut() {
+                Some((_, end)) if cp <= *end + 1 => *end = (*end).max(cp),
+                _ => ranges.push((cp, cp)),
+            }
+        }
+        ranges.shrink_to_fit();
+        Coverage(ranges)
+    }
+
+    fn contains(&self, ch: char) -> bool {
+        let cp = ch as u32;
+        let i = self.0.partition_point(|&(_, end)| end < cp);
+        self.0.get(i).is_some_and(|&(start, _)| start <= cp)
+    }
+}
+
 struct Face {
     is_color_emoji: bool,
     data: Data,
@@ -216,10 +258,10 @@ pub struct FontSet {
     fallback_by_id: HashMap<fontdb::ID, usize>,
     /// Result of fallback search per char, including failed searches.
     fallback: HashMap<char, Option<usize>>,
-    /// Every db face's data, in `db.faces()` order, mapped on the first scan and kept:
-    /// `with_face_data` maps and unmaps the file on each call, which made a scan of a
-    /// few hundred faces take ~10 ms per uncovered char instead of ~50 µs.
-    scan_faces: Option<Vec<Option<(Data, u32)>>>,
+    /// Every db face's coverage, in `db.faces()` order, read on the first scan: mapping
+    /// each file again per uncovered char took ~10 ms a scan, and keeping the mappings
+    /// kept tens of MB of cmap pages in RSS.
+    coverage: Option<Vec<Coverage>>,
     ctx: ScaleContext,
     db_scans: usize,
 }
@@ -290,7 +332,7 @@ impl FontSet {
             fallback_by_id: HashMap::new(),
             fallback: HashMap::new(),
             ctx: ScaleContext::new(),
-            scan_faces: None,
+            coverage: None,
             db_scans: 0,
         })
     }
@@ -353,17 +395,13 @@ impl FontSet {
         self.db_scans += 1;
         let emoji = is_emoji_cp(ch);
         let db = &self.db;
-        let faces = self
-            .scan_faces
-            .get_or_insert_with(|| db.faces().map(|f| face_data(db, f.id)).collect());
+        let coverage = self
+            .coverage
+            .get_or_insert_with(|| db.faces().map(|f| Coverage::of(db, f.id)).collect());
         let mut best: Option<(u32, fontdb::ID)> = None;
-        for (f, data) in db.faces().zip(faces.iter()) {
+        for (f, cov) in db.faces().zip(coverage.iter()) {
             let is_emoji_face = f.families.iter().any(|(n, _)| n == "Noto Color Emoji");
-            let covered = data.as_ref().is_some_and(|(d, i)| {
-                FontRef::from_index((**d).as_ref(), *i as usize)
-                    .is_some_and(|f| f.charmap().map(ch) != 0)
-            });
-            if !covered {
+            if !cov.contains(ch) {
                 continue;
             }
             let mut score = 1;
@@ -627,6 +665,19 @@ fn fit_color(g: RasterGlyph, target_h: u32) -> RasterGlyph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_merges_runs_and_finds_members() {
+        let c = Coverage::from_chars(vec![0x42, 0x41, 0x43, 0x41, 0x100, 0x1F600]);
+        assert_eq!(c.0, vec![(0x41, 0x43), (0x100, 0x100), (0x1F600, 0x1F600)]);
+        for ch in ['A', 'B', 'C', '\u{100}', '\u{1F600}'] {
+            assert!(c.contains(ch), "{ch:?}");
+        }
+        for ch in ['@', 'D', '\u{FF}', '\u{101}', '\u{1F601}'] {
+            assert!(!c.contains(ch), "{ch:?}");
+        }
+        assert!(!Coverage::default().contains('A'));
+    }
 
     fn set(scale: f64) -> FontSet {
         FontSet::load(&FontSpec::default(), scale, system_db()).expect("load default font")
