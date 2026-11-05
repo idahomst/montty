@@ -9,7 +9,7 @@ use winit::dpi::LogicalSize;
 use winit::monitor::MonitorHandle;
 
 use super::links::open_detached;
-use super::modal::{Modal, PromptPurpose, profile_menu_limits, profile_menu_origin, target_alive};
+use super::modal::{MenuKind, Modal, PromptPurpose, profile_menu_limits, target_alive};
 use super::tabs::Tab;
 use super::{PaneStyle, Window};
 use crate::config::profile::{DEFAULT_PROFILE_TOML, new_profile_file, with_name};
@@ -20,7 +20,7 @@ use crate::session::{
 };
 use crate::term::pane::{Pane, next_pane_id};
 use crate::ui::confirm::CloseTarget;
-use crate::ui::menu::{Menu, session_menu_items};
+use crate::ui::menu::session_menu_items;
 use crate::ui::textfield::TextField;
 use crate::ui::toast::{Toast, ToastSource};
 use crate::ui::topbar::Target;
@@ -404,16 +404,7 @@ impl Window {
         let (w, h) = self.size_px();
         let (max_rows, max_cols) = profile_menu_limits(button, w, h, &bm);
         let items = session_menu_items(&names, max_rows, max_cols);
-        let probe = Menu::new(items, 0, 0);
-        let r = probe.rect(&bm);
-        let (x, y) = profile_menu_origin(button, r.w, r.h, w, h);
-        let menu = Menu::new(probe.items, x + r.w, y);
-        self.set_modal(Modal::Menu {
-            menu,
-            profiles: None,
-            sessions: Some(names),
-            pane: None,
-        });
+        self.open_menu_at(items, button, MenuKind::Sessions(names));
     }
 
     /// `Edit config`: `config.toml` (created empty when missing) in an editor (see

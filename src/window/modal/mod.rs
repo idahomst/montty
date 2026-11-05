@@ -13,11 +13,10 @@ use winit::window::CursorIcon;
 use super::Window;
 use crate::clipboard::ClipKind;
 use crate::input::Mods;
-use crate::input::bindings::Action;
 use crate::layout::{PaneId, Rect};
 use crate::term::pane::Pane;
 use crate::ui::confirm::{CloseTarget, Confirm, ConfirmOutcome};
-use crate::ui::menu::{Menu, MenuAction, MenuOutcome, profile_menu};
+use crate::ui::menu::{Menu, MenuAction, MenuItem, MenuOutcome, profile_menu};
 use crate::ui::panel::InfoPanel;
 use crate::ui::textfield::{FieldOutcome, TextField};
 use crate::ui::topbar::{Target, tab_label};
@@ -35,17 +34,25 @@ pub(super) const NEW_PROFILE_TITLE: &str = "New profile";
 /// The titled prompts' width in columns.
 const TITLED_PROMPT_COLS: i32 = 40;
 
+/// Which menu is open, with what its rows refer to.
+pub(super) enum MenuKind {
+    /// The ≡ menu.
+    Main,
+    /// A pane's profile menu.
+    Profiles(ProfileMenu),
+    /// The session list: the names it opened with, so a change on disk can't shift its rows.
+    Sessions(Vec<String>),
+    /// The menu a right-click in this pane opened.
+    Pane(PaneId),
+}
+
 /// The open modal widget, if any. Opening one replaces the current one.
 pub(super) enum Modal {
     None,
-    /// The ≡ menu; with `profiles` a pane's profile menu; with `sessions` the session
-    /// list (the names it opened with, so a change on disk can't shift its rows); with
-    /// `pane` the menu a right-click in that pane opened.
+    /// A menu, and which one it is.
     Menu {
         menu: Menu,
-        profiles: Option<ProfileMenu>,
-        sessions: Option<Vec<String>>,
-        pane: Option<PaneId>,
+        kind: MenuKind,
     },
     Panel(InfoPanel),
     /// A single-line text field for `purpose`.
@@ -121,9 +128,7 @@ impl Window {
         let menu = Menu::new(menu_items(&self.store.global().bindings), right, bar.height);
         self.set_modal(Modal::Menu {
             menu,
-            profiles: None,
-            sessions: None,
-            pane: None,
+            kind: MenuKind::Main,
         });
     }
 
@@ -142,17 +147,11 @@ impl Window {
         let (w, h) = self.size_px();
         let (max_rows, max_cols) = profile_menu_limits(button, w, h, &bm);
         let items = profile_menu(&stems, current, files, max_rows, max_cols);
-        let probe = Menu::new(items, 0, 0);
-        let r = probe.rect(&bm);
-        let (x, y) = profile_menu_origin(button, r.w, r.h, w, h);
-        let menu = Menu::new(probe.items, x + r.w, y);
-        let profiles = Some(ProfileMenu { pane, stems });
-        self.set_modal(Modal::Menu {
-            menu,
-            profiles,
-            sessions: None,
-            pane: None,
-        });
+        self.open_menu_at(
+            items,
+            button,
+            MenuKind::Profiles(ProfileMenu { pane, stems }),
+        );
     }
 
     /// Right-click in pane `pane` at (`x`, `y`): its menu opens on the pointer. The
@@ -163,18 +162,20 @@ impl Window {
         }
         let has_selection = self.selection_text(pane).is_some_and(|t| !t.is_empty());
         let items = pane_menu_items(&self.store.global().bindings, has_selection);
+        // On the pointer, moved to stay inside the window like a profile menu.
+        let at = Rect { x, y, w: 0, h: 0 };
+        self.open_menu_at(items, at, MenuKind::Pane(pane));
+    }
+
+    /// Open a menu of `items` hanging from `anchor` (see `profile_menu_origin`).
+    pub(super) fn open_menu_at(&mut self, items: Vec<MenuItem>, anchor: Rect, kind: MenuKind) {
         let bm = self.bar_metrics();
         let (w, h) = self.size_px();
         let probe = Menu::new(items, 0, 0);
         let r = probe.rect(&bm);
-        // On the pointer, moved to stay inside the window like a profile menu.
-        let (x, y) = profile_menu_origin(Rect { x, y, w: 0, h: 0 }, r.w, r.h, w, h);
-        self.set_modal(Modal::Menu {
-            menu: Menu::new(probe.items, x + r.w, y),
-            profiles: None,
-            sessions: None,
-            pane: Some(pane),
-        });
+        let (x, y) = profile_menu_origin(anchor, r.w, r.h, w, h);
+        let menu = Menu::new(probe.items, x + r.w, y);
+        self.set_modal(Modal::Menu { menu, kind });
     }
 
     /// Tab `i` double-clicked: edit its label in place, starting from the
@@ -321,11 +322,8 @@ impl Window {
             } => self.tabs.tab_of(*pane).is_none(),
             Modal::Confirm(c) => !target_alive(&c.target, &self.tabs, &self.panes),
             Modal::Menu {
-                profiles: Some(ProfileMenu { pane, .. }),
+                kind: MenuKind::Profiles(ProfileMenu { pane, .. }) | MenuKind::Pane(pane),
                 ..
-            }
-            | Modal::Menu {
-                pane: Some(pane), ..
             }
             | Modal::Prompt {
                 purpose: PromptPurpose::NewProfile { pane },
@@ -387,104 +385,50 @@ impl Window {
 
     /// A menu row was chosen: the menu closes and its action runs.
     fn choose(&mut self, a: MenuAction) {
-        match a {
-            MenuAction::NewTab => {
-                self.set_modal(Modal::None);
-                self.perform(Action::NewTab);
-            }
-            MenuAction::NewWindow => {
-                self.set_modal(Modal::None);
-                self.perform(Action::NewWindow);
-            }
-            MenuAction::SaveSession => self.open_save_prompt(),
-            MenuAction::OpenSessionMenu => self.open_session_menu(),
-            MenuAction::EditConfig => {
-                self.set_modal(Modal::None);
-                self.edit_config();
-            }
-            MenuAction::OpenConfigFolder => {
-                self.set_modal(Modal::None);
-                self.open_config_folder();
-            }
-            MenuAction::ReloadConfig => {
-                self.set_modal(Modal::None);
-                self.reload_config(Instant::now());
-            }
-            MenuAction::Shortcuts => {
-                self.set_modal(Modal::Panel(shortcuts_panel(&self.store.global().bindings)))
-            }
-            MenuAction::About => self.set_modal(Modal::Panel(about_panel())),
-            MenuAction::SetProfile(i) => self.choose_profile(i),
-            MenuAction::OpenSession(i) => {
-                let name = match &self.modal {
-                    Modal::Menu {
-                        sessions: Some(names),
-                        ..
-                    } => names.get(i).cloned(),
-                    _ => None,
-                };
-                self.set_modal(Modal::None);
-                if let Some(name) = name {
-                    self.open_session(&name);
-                }
-            }
-            MenuAction::SplitRight
-            | MenuAction::SplitDown
-            | MenuAction::SplitLeft
-            | MenuAction::SplitUp => {
-                self.set_modal(Modal::None);
-                self.perform(match a {
-                    MenuAction::SplitRight => Action::SplitRight,
-                    MenuAction::SplitDown => Action::SplitDown,
-                    MenuAction::SplitLeft => Action::SplitLeft,
-                    _ => Action::SplitUp,
-                });
-            }
-            MenuAction::Copy | MenuAction::Paste => {
-                let pane = match &self.modal {
-                    Modal::Menu { pane, .. } => *pane,
-                    _ => None,
-                };
-                self.set_modal(Modal::None);
-                // The pane clicked, even with the find bar open (its paste goes to the field).
-                match (a, pane) {
-                    (MenuAction::Copy, _) => self.copy(),
-                    (_, Some(pane)) => self.paste_into(pane, ClipKind::Clipboard),
-                    _ => {}
-                }
-            }
-            MenuAction::EditProfile | MenuAction::NewProfile => {
-                let pane = match &self.modal {
-                    Modal::Menu {
-                        profiles: Some(p), ..
-                    } => p.pane,
-                    _ => return,
-                };
-                match a {
-                    MenuAction::EditProfile => {
-                        self.set_modal(Modal::None);
-                        self.edit_profile(pane);
-                    }
-                    _ => self.set_modal(Modal::Prompt {
-                        purpose: PromptPurpose::NewProfile { pane },
-                        field: TextField::new(""),
-                    }),
-                }
-            }
-            MenuAction::Disabled | MenuAction::Separator => {}
+        // Rows that only inform keep the menu open.
+        if matches!(a, MenuAction::Disabled | MenuAction::Separator) {
+            return;
         }
-    }
-
-    /// Row `i` of the profile menu was chosen: the menu closes, and its pane, when
-    /// still there, switches to that profile and takes the focus.
-    fn choose_profile(&mut self, i: usize) {
-        let Modal::Menu {
-            profiles: Some(p), ..
-        } = std::mem::replace(&mut self.modal, Modal::None)
-        else {
+        // The menu closes first; what it was opened for decides some rows.
+        let Modal::Menu { kind, .. } = std::mem::replace(&mut self.modal, Modal::None) else {
             return;
         };
         self.schedule();
+        if let Some(action) = a.as_action() {
+            self.perform(action);
+            return;
+        }
+        match (a, kind) {
+            (MenuAction::SaveSession, _) => self.open_save_prompt(),
+            (MenuAction::OpenSessionMenu, _) => self.open_session_menu(),
+            (MenuAction::EditConfig, _) => self.edit_config(),
+            (MenuAction::OpenConfigFolder, _) => self.open_config_folder(),
+            (MenuAction::ReloadConfig, _) => self.reload_config(Instant::now()),
+            (MenuAction::Shortcuts, _) => {
+                self.set_modal(Modal::Panel(shortcuts_panel(&self.store.global().bindings)))
+            }
+            (MenuAction::About, _) => self.set_modal(Modal::Panel(about_panel())),
+            (MenuAction::SetProfile(i), MenuKind::Profiles(p)) => self.choose_profile(p, i),
+            (MenuAction::OpenSession(i), MenuKind::Sessions(names)) => {
+                if let Some(name) = names.get(i) {
+                    self.open_session(name);
+                }
+            }
+            (MenuAction::Copy, _) => self.copy(),
+            // Into the pane clicked, even with the find bar open (its paste goes to the field).
+            (MenuAction::Paste, MenuKind::Pane(pane)) => self.paste_into(pane, ClipKind::Clipboard),
+            (MenuAction::EditProfile, MenuKind::Profiles(p)) => self.edit_profile(p.pane),
+            (MenuAction::NewProfile, MenuKind::Profiles(p)) => self.set_modal(Modal::Prompt {
+                purpose: PromptPurpose::NewProfile { pane: p.pane },
+                field: TextField::new(""),
+            }),
+            _ => {}
+        }
+    }
+
+    /// Row `i` of profile menu `p` was chosen (the menu has closed): its pane, when still
+    /// there, switches to that profile and takes the focus.
+    fn choose_profile(&mut self, p: ProfileMenu, i: usize) {
         // A profile deleted while the menu was open: nothing changes.
         let Some(stem) = profile_choice(&p.stems, i, |s| self.store.contains(s)) else {
             return;

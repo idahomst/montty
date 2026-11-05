@@ -4,6 +4,7 @@
 
 use super::text::{display_width, sanitize, truncate};
 use super::topbar::BarMetrics;
+use crate::input::bindings::Action;
 use crate::layout::Rect;
 use winit::keyboard::{Key, NamedKey};
 
@@ -222,6 +223,21 @@ impl MenuItem {
     }
 }
 
+impl MenuAction {
+    /// The key-binding action a row runs, for rows that run one.
+    pub fn as_action(self) -> Option<Action> {
+        Some(match self {
+            MenuAction::NewTab => Action::NewTab,
+            MenuAction::NewWindow => Action::NewWindow,
+            MenuAction::SplitRight => Action::SplitRight,
+            MenuAction::SplitDown => Action::SplitDown,
+            MenuAction::SplitLeft => Action::SplitLeft,
+            MenuAction::SplitUp => Action::SplitUp,
+            _ => return None,
+        })
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MenuOutcome {
     None,
@@ -365,6 +381,19 @@ impl Menu {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_tab_window_and_split_rows_run_a_binding_action() {
+        assert_eq!(MenuAction::NewTab.as_action(), Some(Action::NewTab));
+        assert_eq!(MenuAction::SplitUp.as_action(), Some(Action::SplitUp));
+        for a in [
+            MenuAction::Copy,
+            MenuAction::SetProfile(0),
+            MenuAction::Disabled,
+        ] {
+            assert_eq!(a.as_action(), None);
+        }
+    }
 
     fn menu() -> Menu {
         let item = |l: &str, s: Option<&str>, a| MenuItem {
