@@ -1173,17 +1173,12 @@ impl Window {
                     self.scroll_panel(d);
                 }
             }
-            Modal::Prompt { field, .. } => {
-                let before = (field.text().to_string(), field.cursor());
-                let out = field.key(key, event.text.as_deref(), mods);
-                let changed = (field.text(), field.cursor()) != (before.0.as_str(), before.1);
-                match out {
-                    FieldOutcome::Editing if changed => self.schedule(),
-                    FieldOutcome::Editing => {}
-                    FieldOutcome::Commit(text) => self.commit_prompt(&text),
-                    FieldOutcome::Cancel => self.set_modal(Modal::None),
-                }
-            }
+            Modal::Prompt { field, .. } => match field.key(key, event.text.as_deref(), mods) {
+                FieldOutcome::Edited | FieldOutcome::Moved => self.schedule(),
+                FieldOutcome::Unchanged => {}
+                FieldOutcome::Commit(text) => self.commit_prompt(&text),
+                FieldOutcome::Cancel => self.set_modal(Modal::None),
+            },
             Modal::Confirm(c) => {
                 let out = c.key(key);
                 self.confirm_outcome(out);

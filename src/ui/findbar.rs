@@ -84,17 +84,19 @@ impl FindBar {
     /// Escape closes; with the text selected, an edit replaces all of it.
     pub fn key(&mut self, key: &Key, text: Option<&str>, mods: Mods) -> FindKey {
         let replaces = self.select_all && replaces_selection(key, text, mods);
-        let before = (self.field.text().to_string(), self.field.cursor());
+        // Replacing a selected query is an edit even when the key then does nothing.
+        let cleared = replaces && !self.field.text().is_empty();
         if replaces {
             self.field = TextField::new("");
         }
-        let out = self.field.key(key, text, mods);
-        match out {
+        let (edited, moved) = match self.field.key(key, text, mods) {
             FieldOutcome::Commit(_) if mods.shift => return FindKey::Prev,
             FieldOutcome::Commit(_) => return FindKey::Next,
             FieldOutcome::Cancel => return FindKey::Close,
-            FieldOutcome::Editing => {}
-        }
+            FieldOutcome::Edited => (true, false),
+            FieldOutcome::Moved => (cleared, true),
+            FieldOutcome::Unchanged => (cleared, false),
+        };
         let moves = matches!(
             key,
             Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End)
@@ -103,9 +105,9 @@ impl FindBar {
         if selection_dropped {
             self.select_all = false;
         }
-        if self.field.text() != before.0 {
+        if edited {
             FindKey::Edited
-        } else if selection_dropped || self.field.cursor() != before.1 {
+        } else if selection_dropped || moved {
             FindKey::Redraw
         } else {
             FindKey::Nothing
