@@ -89,14 +89,22 @@ fn indexed(i: u8, p: &Palette) -> Rgb {
 }
 
 fn named(n: NamedColor, p: &Palette) -> Rgb {
-    match n as usize {
-        i @ 0..=15 => p.ansi[i],
-        256 | 267 => p.fg, // Foreground, BrightForeground
-        257 => p.bg,
-        258 => p.cursor,
-        i @ 259..=266 => dim(p.ansi[i - 259]), // Dim{Black..White}
-        268 => dim(p.fg),                      // DimForeground
-        _ => p.fg,
+    use NamedColor::*;
+    match n {
+        Foreground | BrightForeground => p.fg,
+        Background => p.bg,
+        Cursor => p.cursor,
+        DimBlack => dim(p.ansi[0]),
+        DimRed => dim(p.ansi[1]),
+        DimGreen => dim(p.ansi[2]),
+        DimYellow => dim(p.ansi[3]),
+        DimBlue => dim(p.ansi[4]),
+        DimMagenta => dim(p.ansi[5]),
+        DimCyan => dim(p.ansi[6]),
+        DimWhite => dim(p.ansi[7]),
+        DimForeground => dim(p.fg),
+        // The 16 ANSI colors: their discriminants (0..=15) are the palette indices.
+        ansi => p.ansi[ansi as usize],
     }
 }
 
