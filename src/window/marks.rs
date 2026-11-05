@@ -4,6 +4,7 @@
 use super::Window;
 use super::attention::{Dot, Level};
 use super::draw::paint_link_label;
+use super::links::label_box;
 use crate::layout::{PaneId, Rect};
 use crate::render::RectInstance;
 use crate::term::status::display_text;
@@ -71,21 +72,14 @@ pub(super) fn dot_label_rect(
     win: (i32, i32),
     bm: &BarMetrics,
 ) -> Option<Rect> {
-    let h = bm.cell_h + 2 * bm.pad;
-    if text_cols == 0 || win.1 < h || win.0 < bm.cell_w + 2 * bm.pad {
-        return None;
-    }
-    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(win.0);
-    let mut y = dot.y + dot.h + LABEL_GAP;
-    if y + h > win.1 {
-        y = dot.y - LABEL_GAP - h;
-    }
-    Some(Rect {
-        x: dot.x.min(win.0 - w).max(0),
-        y: y.clamp(0, win.1 - h),
-        w,
-        h,
-    })
+    let window = Rect {
+        x: 0,
+        y: 0,
+        w: win.0,
+        h: win.1,
+    };
+    let (below, above) = (dot.y + dot.h + LABEL_GAP, dot.y - LABEL_GAP);
+    label_box(dot.x, below, above, window, text_cols, bm)
 }
 
 fn grown(r: Rect) -> Rect {

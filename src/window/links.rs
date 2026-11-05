@@ -133,17 +133,33 @@ pub(super) fn label_rect(
     text_cols: usize,
     bm: &BarMetrics,
 ) -> Option<Rect> {
+    label_box(first.x, last.y + last.h, first.y, pane, text_cols, bm)
+}
+
+/// A one-row label box for `text_cols` columns inside `within`, at most as wide as it:
+/// its top at `below`, or its bottom at `above` when it wouldn't fit below; its left edge
+/// at `left`, shifted to stay inside. None when `within` can't hold one row plus padding.
+pub(super) fn label_box(
+    left: i32,
+    below: i32,
+    above: i32,
+    within: Rect,
+    text_cols: usize,
+    bm: &BarMetrics,
+) -> Option<Rect> {
     let h = bm.cell_h + 2 * bm.pad;
-    if text_cols == 0 || pane.w < bm.cell_w + 2 * bm.pad || pane.h < h {
+    if text_cols == 0 || within.w < bm.cell_w + 2 * bm.pad || within.h < h {
         return None;
     }
-    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(pane.w);
-    let mut y = last.y + last.h;
-    if y + h > pane.y + pane.h {
-        y = (first.y - h).max(pane.y);
-    }
-    let x = first.x.min(pane.x + pane.w - w).max(pane.x);
-    Some(Rect { x, y, w, h })
+    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(within.w);
+    let (right, bottom) = (within.x + within.w, within.y + within.h);
+    let y = if below + h > bottom { above - h } else { below };
+    Some(Rect {
+        x: left.min(right - w).max(within.x),
+        y: y.clamp(within.y, bottom - h),
+        w,
+        h,
+    })
 }
 
 /// The pointer shape outside the bar and modals: the hand over a hovered link, else
