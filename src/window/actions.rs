@@ -127,10 +127,7 @@ impl Window {
     /// spawn leaves the layout as it was.
     fn split(&mut self, o: Orientation, before: bool) {
         let id = next_pane_id();
-        let style = PaneStyle {
-            stem: self.pane_stem(self.tabs.active().focused).to_string(),
-            zoom_pt: 0.0,
-        };
+        let style = PaneStyle::new(self.pane_stem(self.tabs.active().focused));
         let cwd = self
             .panes
             .get(&self.tabs.active().focused)

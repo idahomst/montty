@@ -261,11 +261,7 @@ impl Window {
         });
         let mut all_ok = true;
         for (id, leaf) in &leaves {
-            let style = PaneStyle {
-                stem: leaf.stem.clone(),
-                zoom_pt: 0.0,
-            };
-            self.pane_profiles.insert(*id, style);
+            self.pane_profiles.insert(*id, PaneStyle::new(&leaf.stem));
             let Some((pane, size)) =
                 self.spawn_pane(*id, area, leaf.cwd.clone(), leaf.command.clone())
             else {

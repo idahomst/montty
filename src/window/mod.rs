@@ -105,6 +105,16 @@ pub(super) struct PaneStyle {
     pub zoom_pt: f32,
 }
 
+impl PaneStyle {
+    /// Profile `stem`, unzoomed.
+    pub fn new(stem: &str) -> PaneStyle {
+        PaneStyle {
+            stem: stem.to_string(),
+            zoom_pt: 0.0,
+        }
+    }
+}
+
 /// A pane's font as resolved now: the set's key in the `FontCache`, its cells and the
 /// padding in px.
 #[derive(Clone, Copy, Debug)]
@@ -622,12 +632,7 @@ impl Window {
         let (store, toast_errors, mut toast) = load_store(dir.as_deref(), now);
         // The first pane runs under the window's default profile, which also sets the
         // UI font and the initial size.
-        let first = PaneStyle {
-            stem: (profile_arg.as_deref())
-                .unwrap_or(store.default_stem())
-                .to_string(),
-            zoom_pt: 0.0,
-        };
+        let first = PaneStyle::new(profile_arg.as_deref().unwrap_or(store.default_stem()));
         let mut fonts = FontCache::new(system_db());
         let (f1, _) =
             resolve_font(&mut fonts, &store, &first.stem, 0.0, 1.0).map_err(|e| e.to_string())?;
@@ -671,9 +676,7 @@ impl Window {
             profile_arg.as_deref().is_some_and(|p| store.contains(p)),
             store.default_stem(),
         ) {
-            eprintln!("montty: {body}{tail}");
-            // One toast at a time: the config's own errors come first.
-            toast.get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Startup, now));
+            startup_problem(&mut toast, &body, &tail, ToastSource::Startup, now);
         }
         let scale = window.scale_factor();
         // Unzoomed, the first pane's font is the UI font.
@@ -681,7 +684,6 @@ impl Window {
             resolve_font(&mut fonts, &store, &first.stem, 0.0, scale).map_err(|e| e.to_string())?;
 
         let x11_window_id = x11_window_id(&window);
-        let shell = std::env::var("SHELL").ok();
         let id = next_pane_id();
         let bar_h = BarMetrics::new(&font.metrics, scale).height;
         let (cols, lines) = grid_size(
@@ -690,35 +692,23 @@ impl Window {
             font.padding,
         );
         let size = window_size(cols, lines, &font.metrics);
-        // A profile's program that can't start falls back to a shell; `-e` doesn't.
-        let mut first_pane = None;
-        if session.is_none() {
-            let opts = pane_options(
-                &store.profile(&first.stem).profile,
-                command.clone(),
-                shell.as_deref(),
-                x11_window_id,
-                None,
-                store.global().kitty_keyboard,
-            );
-            let (mut pane, fallback) =
-                spawn_pane_process(id, &opts, size, &sink, command.is_none(), shell.as_deref())
-                    .map_err(|e| e.to_string())?;
-            pane.set_explicit_command(command.clone());
-            if let Some(f) = fallback {
-                let stem = resolved_stem_of(
-                    store.contains(&first.stem),
-                    &first.stem,
-                    store.default_stem(),
-                );
-                let (body, tail) = fallback_text(Some(stem), &f);
-                eprintln!("montty: {body}{tail}");
-                // One toast at a time: the config's own errors come first.
-                toast
-                    .get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Error, now));
+        let first_pane = match session {
+            Some(_) => None,
+            None => {
+                let first_pane = FirstPane {
+                    id,
+                    stem: &first.stem,
+                    command,
+                    x11_window_id,
+                    size,
+                };
+                let (pane, problem) = first_pane.spawn(&store, &sink)?;
+                if let Some((body, tail)) = problem {
+                    startup_problem(&mut toast, &body, &tail, ToastSource::Error, now);
+                }
+                Some(pane)
             }
-            first_pane = Some(pane);
-        }
+        };
 
         let renderer = Renderer::new(glow, ATLAS_SIZE)?;
         let image_limit = images::image_limit(
@@ -1520,10 +1510,7 @@ impl Window {
 
     /// A new pane under the window's default profile.
     pub(super) fn default_style(&self) -> PaneStyle {
-        PaneStyle {
-            stem: self.window_stem().to_string(),
-            zoom_pt: 0.0,
-        }
+        PaneStyle::new(self.window_stem())
     }
 
     /// The profile stem pane `id` records (an unknown pane: the window default).
@@ -1731,6 +1718,65 @@ impl Window {
 fn log_errors(errors: &[ConfigError]) {
     for e in errors {
         eprintln!("montty: {e}");
+    }
+}
+
+/// A startup problem: printed, and shown unless an earlier one already has the toast
+/// (one at a time; the config's own errors come first).
+fn startup_problem(
+    toast: &mut Option<Toast>,
+    body: &str,
+    tail: &str,
+    source: ToastSource,
+    now: Instant,
+) {
+    eprintln!("montty: {body}{tail}");
+    toast.get_or_insert_with(|| Toast::with_tail(body, tail, source, now));
+}
+
+/// A new window's first pane (not for a session window, whose panes come from the session).
+struct FirstPane<'a> {
+    id: PaneId,
+    stem: &'a str,
+    /// `-e`'s command; without one, a profile's program that can't start falls back to
+    /// a shell.
+    command: Option<Vec<String>>,
+    x11_window_id: Option<u64>,
+    size: WindowSize,
+}
+
+impl FirstPane<'_> {
+    /// The pane, and the (body, tail) of a startup problem when it fell back to a shell.
+    fn spawn(
+        self,
+        store: &Store,
+        sink: &Arc<dyn EventSink>,
+    ) -> Result<(Pane, Option<(String, String)>), String> {
+        let shell = std::env::var("SHELL").ok();
+        let opts = pane_options(
+            &store.profile(self.stem).profile,
+            self.command.clone(),
+            shell.as_deref(),
+            self.x11_window_id,
+            None,
+            store.global().kitty_keyboard,
+        );
+        let fallback_ok = self.command.is_none();
+        let (mut pane, fallback) = spawn_pane_process(
+            self.id,
+            &opts,
+            self.size,
+            sink,
+            fallback_ok,
+            shell.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+        pane.set_explicit_command(self.command);
+        let problem = fallback.map(|f| {
+            let stem = resolved_stem_of(store.contains(self.stem), self.stem, store.default_stem());
+            fallback_text(Some(stem), &f)
+        });
+        Ok((pane, problem))
     }
 }
 
@@ -2288,13 +2334,7 @@ mod tests {
     fn styles(stems: &[(PaneId, &str)]) -> HashMap<PaneId, PaneStyle> {
         stems
             .iter()
-            .map(|&(id, stem)| {
-                let style = PaneStyle {
-                    stem: stem.to_string(),
-                    zoom_pt: 0.0,
-                };
-                (id, style)
-            })
+            .map(|&(id, stem)| (id, PaneStyle::new(stem)))
             .collect()
     }
 
