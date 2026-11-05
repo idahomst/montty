@@ -491,7 +491,7 @@ impl Window {
             self.error_toast(NO_CONFIG_DIR);
             return;
         };
-        let file = profile_path(&dir, self.current_stem(pane));
+        let file = profile_path(&dir, self.resolved_stem(pane));
         match file.is_file() {
             true => self.open_in_editor(dir, &file),
             false => self.error_toast(&format!("{}: not found", file.display())),
@@ -514,7 +514,7 @@ impl Window {
             self.error_toast(NO_CONFIG_DIR);
             return;
         };
-        let source = profile_path(&dir, self.current_stem(pane));
+        let source = profile_path(&dir, self.resolved_stem(pane));
         let text = std::fs::read_to_string(source).unwrap_or_else(|_| DEFAULT_PROFILE_TOML.into());
         let file = dir.join(&rel);
         match write_new(&file, &with_name(&text, name)) {

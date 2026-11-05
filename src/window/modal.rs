@@ -795,15 +795,6 @@ impl Window {
         });
     }
 
-    /// The profile pane `pane` runs under: its own, or the default when that is unknown.
-    pub(super) fn current_stem(&self, pane: PaneId) -> &str {
-        let stem = self.pane_stem(pane);
-        match self.store.contains(stem) {
-            true => stem,
-            false => self.store.default_stem(),
-        }
-    }
-
     /// The Profile button (`button`) of pane `pane`'s overlay clicked: a row per
     /// profile, the one the pane resolves to marked, then editing it and creating a new
     /// one, hanging from the button (see `profile_menu_origin`). No profiles and no
@@ -814,7 +805,7 @@ impl Window {
         if stems.is_empty() && !files {
             return;
         }
-        let current = self.current_stem(pane);
+        let current = self.resolved_stem(pane);
         let bm = self.bar_metrics();
         let (w, h) = self.size_px();
         let (max_rows, max_cols) = profile_menu_limits(button, w, h, &bm);
