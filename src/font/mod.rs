@@ -110,6 +110,12 @@ pub fn resolve_family(requested: &str, db: &fontdb::Database) -> Option<String> 
     found
 }
 
+/// `monospace` when fc-match has no answer (macOS has no fontconfig unless installed).
+#[cfg(not(target_os = "macos"))]
+const MONOSPACE: &[&str] = &["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"];
+#[cfg(target_os = "macos")]
+const MONOSPACE: &[&str] = &["Menlo", "Monaco"];
+
 fn resolve_uncached(requested: &str, db: &fontdb::Database) -> Option<String> {
     #[cfg(test)]
     RESOLVE_RUNS.with(|n| n.set(n.get() + 1));
@@ -127,7 +133,7 @@ fn resolve_uncached(requested: &str, db: &fontdb::Database) -> Option<String> {
                 return Some(n);
             }
         }
-        for cand in ["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"] {
+        for &cand in MONOSPACE {
             if let Some(n) = has_family(db, cand) {
                 return Some(n);
             }
