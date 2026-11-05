@@ -27,8 +27,8 @@ cp -r assets/icon/hicolor ~/.local/share/icons/
 cp assets/montty.desktop ~/.local/share/applications/
 ```
 
-The tarball holds `bin/montty`, `assets/icon/hicolor`, `assets/montty.desktop`, `LICENSE`, `README.md` and
-`docs/install.md`. For a system-wide install copy the same files under `/usr/local/bin`, `/usr/local/share/icons` and
+The tarball holds `bin/montty`, `assets/icon/hicolor`, `assets/montty.desktop`, `LICENSE`, `LICENSE-SCHEMES`,
+`README.md`, `docs/install.md` and `docs/config.md` (the configuration reference). For a system-wide install copy the same files under `/usr/local/bin`, `/usr/local/share/icons` and
 `/usr/local/share/applications` instead.
 
 ## From a source build
