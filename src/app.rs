@@ -11,8 +11,9 @@ use winit::window::WindowId;
 
 use crate::cli::Args;
 use crate::config::{GlobalConfig, config_dir};
+use crate::events::UserEvent;
 use crate::session::{last_file, read_file, read_session};
-use crate::term::pane::UserEvent;
+use crate::term::PaneId;
 use crate::window::{StartupInit, Window, startup_init};
 use crate::windows::{AppRequest, WindowInit, Windows};
 
@@ -38,6 +39,60 @@ pub struct App {
 }
 
 impl App {
+    /// What the first window opens with: `--session`'s session, else the last session
+    /// (see `startup_init`), else the default pane; plus a problem for its error toast
+    /// (already printed).
+    fn first_init(&self) -> (WindowInit, Option<String>) {
+        let profile = self.args.profile.clone();
+        let default = |command| WindowInit::Default {
+            profile: profile.clone(),
+            command,
+        };
+        if let Some(name) = &self.args.session {
+            return match read_session(config_dir().as_deref(), name) {
+                Ok(doc) => (
+                    WindowInit::Session {
+                        doc,
+                        name: Some(name.clone()),
+                        profile: profile.clone(),
+                    },
+                    None,
+                ),
+                Err(e) => {
+                    // The window starts with the default pane and says why.
+                    eprintln!("montty: {e}");
+                    (default(None), Some(e))
+                }
+            };
+        }
+        let dir = config_dir();
+        let restore = restore_enabled(dir.as_deref());
+        let last = (restore && dir.as_deref().is_some_and(|d| d.join(last_file()).exists()))
+            .then(|| read_file(dir.as_deref(), &last_file()));
+        let command = self.args.command.clone();
+        match startup_init(restore, last, command.is_some()) {
+            StartupInit::Session(doc) => (
+                WindowInit::Session {
+                    doc,
+                    name: None,
+                    profile: profile.clone(),
+                },
+                None,
+            ),
+            StartupInit::Default => (default(command), None),
+            StartupInit::DefaultWithError(e) => {
+                eprintln!("montty: {e}");
+                (default(command), Some(e))
+            }
+        }
+    }
+
+    /// The window holding `pane`; None once the pane or its window is gone (its late
+    /// events are dropped).
+    fn pane_owner(&self, pane: PaneId) -> Option<WindowId> {
+        self.windows.owner_of(pane, |w, p| w.has_pane(p))
+    }
+
     pub fn new(args: Args, proxy: EventLoopProxy<UserEvent>) -> App {
         App {
             args,
@@ -118,49 +173,7 @@ impl ApplicationHandler<UserEvent> for App {
             return;
         }
         self.started = true;
-        let mut problem = None;
-        let init = match &self.args.session {
-            Some(name) => match read_session(config_dir().as_deref(), name) {
-                Ok(doc) => WindowInit::Session {
-                    doc,
-                    name: Some(name.clone()),
-                    profile: self.args.profile.clone(),
-                },
-                Err(e) => {
-                    // The window starts with the default pane and says why.
-                    eprintln!("montty: {e}");
-                    problem = Some(e);
-                    WindowInit::Default {
-                        profile: self.args.profile.clone(),
-                        command: None,
-                    }
-                }
-            },
-            None => {
-                let dir = config_dir();
-                let restore = restore_enabled(dir.as_deref());
-                let last = (restore
-                    && dir.as_deref().is_some_and(|d| d.join(last_file()).exists()))
-                .then(|| read_file(dir.as_deref(), &last_file()));
-                match startup_init(restore, last, false, self.args.command.is_some()) {
-                    StartupInit::Session(doc) => WindowInit::Session {
-                        doc,
-                        name: None,
-                        profile: self.args.profile.clone(),
-                    },
-                    other => {
-                        if let StartupInit::DefaultWithError(e) = other {
-                            eprintln!("montty: {e}");
-                            problem = Some(e);
-                        }
-                        WindowInit::Default {
-                            profile: self.args.profile.clone(),
-                            command: self.args.command.clone(),
-                        }
-                    }
-                }
-            }
-        };
+        let (init, problem) = self.first_init();
         match self.open(el, init) {
             Ok(mut w) => {
                 if let Some(e) = problem {
@@ -176,19 +189,18 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, id: WindowId, ev: WindowEvent) {
-        self.with_window(el, id, true, |w| w.handle_window_event(ev, el));
+        self.with_window(el, id, true, |w| w.handle_window_event(ev));
     }
 
     fn user_event(&mut self, el: &ActiveEventLoop, ev: UserEvent) {
         match ev {
             UserEvent::Term(pane, ev) => {
-                // A pane that is gone, or whose window is, has no owner: dropped.
-                if let Some(id) = self.windows.owner_of(pane, |w, p| w.has_pane(p)) {
+                if let Some(id) = self.pane_owner(pane) {
                     self.with_window(el, id, false, |w| w.handle_term_event(pane, ev));
                 }
             }
             UserEvent::Signal(pane, sig) => {
-                if let Some(id) = self.windows.owner_of(pane, |w, p| w.has_pane(p)) {
+                if let Some(id) = self.pane_owner(pane) {
                     self.with_window(el, id, false, |w| w.handle_signal(pane, sig));
                 }
             }

@@ -48,6 +48,7 @@ use crate::config::profile::{CursorShapeCfg, Profile};
 use crate::config::store::{ReloadReport, Resolved, Store};
 use crate::config::watch::{Debounce, Watcher, config_watch_dirs};
 use crate::config::{ConfigError, config_dir};
+use crate::events::{EventSink, UserEvent};
 use crate::font::{FontCache, Metrics, system_db};
 use crate::frame::{FrameScheduler, Schedule};
 use crate::input::Mods;
@@ -58,7 +59,7 @@ use crate::render::Renderer;
 use crate::render::image::ImageTexture;
 use crate::term::colors::resolve;
 use crate::term::osc_scan::Signal;
-use crate::term::pane::{EventSink, Pane, PaneOptions, UserEvent, next_pane_id};
+use crate::term::pane::{Pane, PaneOptions, next_pane_id};
 use crate::term::snapshot::Snapshot;
 use crate::term::status::display_text;
 use crate::ui::confirm::CloseTarget;
@@ -105,6 +106,16 @@ pub(super) struct PaneStyle {
     pub zoom_pt: f32,
 }
 
+impl PaneStyle {
+    /// Profile `stem`, unzoomed.
+    pub fn new(stem: &str) -> PaneStyle {
+        PaneStyle {
+            stem: stem.to_string(),
+            zoom_pt: 0.0,
+        }
+    }
+}
+
 /// A pane's font as resolved now: the set's key in the `FontCache`, its cells and the
 /// padding in px.
 #[derive(Clone, Copy, Debug)]
@@ -112,11 +123,6 @@ pub(super) struct PaneFont {
     pub key: u32,
     pub metrics: Metrics,
     pub padding: i32,
-}
-
-/// The font keys in use: the UI font and each pane's.
-fn live_keys(ui: u32, panes: impl Iterator<Item = u32>) -> HashSet<u32> {
-    panes.chain(std::iter::once(ui)).collect()
 }
 
 /// A profile's font size plus a pane's zoom, within `MIN_PT..=MAX_PT`.
@@ -346,7 +352,7 @@ fn next_toast(
     now: Instant,
 ) -> Option<Toast> {
     match pending_error {
-        Some(text) => Some(Toast::new(&text, ToastSource::Spawn, now)),
+        Some(text) => Some(Toast::new(&text, ToastSource::Error, now)),
         None => images(),
     }
 }
@@ -445,13 +451,6 @@ fn replace_title(slot: &mut Option<String>, new: Option<String>) -> bool {
 /// Every pane's rect in every tab (hidden tabs included) when tiled into `area`.
 fn all_layouts(tabs: &Tabs, area: Rect) -> Vec<(PaneId, Rect)> {
     tabs.iter().flat_map(|t| t.tree.layout(area)).collect()
-}
-
-/// Whether a keyboard event is handled at all. winit sends synthetic presses for keys already
-/// held when the window gains focus (launching montty from a Ctrl+Alt+T hotkey would type
-/// ESC ^T), so they are ignored, as Alacritty does.
-fn handles_key(is_synthetic: bool) -> bool {
-    !is_synthetic
 }
 
 /// Whether `on_key` stops at this event, keeping `binding_keys` (keys whose press a binding,
@@ -561,9 +560,10 @@ pub struct Window {
     quiet_resize_until: Option<Instant>,
     /// The focused pane's cursor blink cycle.
     blink: Blink,
-    /// The focused pane's effective cursor style blinks (read at each frame).
+    /// The focused pane's cursor blinks now (its DECSCUSR style, read at each frame);
+    /// arms the blink timer.
     blink_on: bool,
-    /// Whether the last frame drew the cursor (the blink phase it showed).
+    /// Whether the last frame drew the cursor: `on_timers` compares the clock's phase to it.
     blink_shown: bool,
     panes: HashMap<PaneId, Pane>,
     /// Last size sent to each pane's PTY.
@@ -633,12 +633,7 @@ impl Window {
         let (store, toast_errors, mut toast) = load_store(dir.as_deref(), now);
         // The first pane runs under the window's default profile, which also sets the
         // UI font and the initial size.
-        let first = PaneStyle {
-            stem: (profile_arg.as_deref())
-                .unwrap_or(store.default_stem())
-                .to_string(),
-            zoom_pt: 0.0,
-        };
+        let first = PaneStyle::new(profile_arg.as_deref().unwrap_or(store.default_stem()));
         let mut fonts = FontCache::new(system_db());
         let (f1, _) =
             resolve_font(&mut fonts, &store, &first.stem, 0.0, 1.0).map_err(|e| e.to_string())?;
@@ -660,11 +655,14 @@ impl Window {
                 lines as u32 * m.cell_height + 2 * padding + BarMetrics::new(&m, 1.0).height as u32,
             ));
         // The app id / WM_CLASS; both backends define `with_name`, so call them qualified.
-        let attrs =
-            winit::platform::x11::WindowAttributesExtX11::with_name(attrs, "montty", "montty");
-        let attrs = winit::platform::wayland::WindowAttributesExtWayland::with_name(
-            attrs, "montty", "montty",
-        );
+        #[cfg(not(target_os = "macos"))]
+        let attrs = {
+            let attrs =
+                winit::platform::x11::WindowAttributesExtX11::with_name(attrs, "montty", "montty");
+            winit::platform::wayland::WindowAttributesExtWayland::with_name(
+                attrs, "montty", "montty",
+            )
+        };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
         let watcher = dir.and_then(|d| {
             let (w, errs) = start_watcher(&d, window.id(), sink.clone());
@@ -682,9 +680,7 @@ impl Window {
             profile_arg.as_deref().is_some_and(|p| store.contains(p)),
             store.default_stem(),
         ) {
-            eprintln!("montty: {body}{tail}");
-            // One toast at a time: the config's own errors come first.
-            toast.get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Startup, now));
+            startup_problem(&mut toast, &body, &tail, ToastSource::Startup, now);
         }
         let scale = window.scale_factor();
         // Unzoomed, the first pane's font is the UI font.
@@ -692,7 +688,6 @@ impl Window {
             resolve_font(&mut fonts, &store, &first.stem, 0.0, scale).map_err(|e| e.to_string())?;
 
         let x11_window_id = x11_window_id(&window);
-        let shell = std::env::var("SHELL").ok();
         let id = next_pane_id();
         let bar_h = BarMetrics::new(&font.metrics, scale).height;
         let (cols, lines) = grid_size(
@@ -701,36 +696,23 @@ impl Window {
             font.padding,
         );
         let size = window_size(cols, lines, &font.metrics);
-        // The error already names the command ("Failed to spawn command '...': ...").
-        // A profile's program that can't start falls back to a shell; `-e` doesn't.
-        let mut first_pane = None;
-        if session.is_none() {
-            let opts = pane_options(
-                &store.profile(&first.stem).profile,
-                command.clone(),
-                shell.as_deref(),
-                x11_window_id,
-                None,
-                store.global().kitty_keyboard,
-            );
-            let (mut pane, fallback) =
-                spawn_pane_process(id, &opts, size, &sink, command.is_none(), shell.as_deref())
-                    .map_err(|e| e.to_string())?;
-            pane.set_explicit_command(command.clone());
-            if let Some(f) = fallback {
-                let stem = resolved_stem_of(
-                    store.contains(&first.stem),
-                    &first.stem,
-                    store.default_stem(),
-                );
-                let (body, tail) = fallback_text(Some(stem), &f);
-                eprintln!("montty: {body}{tail}");
-                // One toast at a time: the config's own errors come first.
-                toast
-                    .get_or_insert_with(|| Toast::with_tail(&body, &tail, ToastSource::Spawn, now));
+        let first_pane = match session {
+            Some(_) => None,
+            None => {
+                let first_pane = FirstPane {
+                    id,
+                    stem: &first.stem,
+                    command,
+                    x11_window_id,
+                    size,
+                };
+                let (pane, problem) = first_pane.spawn(&store, &sink)?;
+                if let Some((body, tail)) = problem {
+                    startup_problem(&mut toast, &body, &tail, ToastSource::Error, now);
+                }
+                Some(pane)
             }
-            first_pane = Some(pane);
-        }
+        };
 
         let renderer = Renderer::new(glow, ATLAS_SIZE)?;
         let image_limit = images::image_limit(
@@ -759,7 +741,7 @@ impl Window {
             fonts,
             ui_font: font.key,
             ui_metrics: font.metrics,
-            profile_arg: profile_arg.clone(),
+            profile_arg,
             pane_profiles: HashMap::from([(id, first)]),
             fonts_reported: ReportedFonts::default(),
             store,
@@ -848,7 +830,7 @@ impl Window {
             self.pending_error = Some(text.to_string());
             return;
         }
-        self.toast = Some(Toast::new(text, ToastSource::Spawn, Instant::now()));
+        self.toast = Some(Toast::new(text, ToastSource::Error, Instant::now()));
         self.schedule();
     }
 
@@ -877,13 +859,13 @@ impl Window {
     }
 
     /// Returns false when the window should close.
-    pub fn handle_window_event(&mut self, ev: WindowEvent, el: &ActiveEventLoop) -> bool {
-        let keep = self.on_window_event(ev, el);
+    pub fn handle_window_event(&mut self, ev: WindowEvent) -> bool {
+        let keep = self.on_window_event(ev);
         self.refresh_looking();
         keep
     }
 
-    fn on_window_event(&mut self, ev: WindowEvent, _el: &ActiveEventLoop) -> bool {
+    fn on_window_event(&mut self, ev: WindowEvent) -> bool {
         self.ensure_current();
         match ev {
             // Asks first when a pane runs a process (also while another
@@ -919,11 +901,14 @@ impl Window {
                 self.modifiers = m.state();
                 self.update_link_hover();
             }
+            // winit sends synthetic presses for keys already held when the window gains
+            // focus (launching montty from a Ctrl+Alt+T hotkey would type ESC ^T): ignored,
+            // as Alacritty does.
             WindowEvent::KeyboardInput {
                 event,
-                is_synthetic,
+                is_synthetic: false,
                 ..
-            } if handles_key(is_synthetic) => self.on_key(&event),
+            } => self.on_key(&event),
             WindowEvent::CursorMoved { position, .. } => self.on_cursor_moved(position),
             WindowEvent::CursorLeft { .. } => self.on_cursor_left(),
             WindowEvent::MouseInput { state, button, .. } => self.on_mouse_input(state, button),
@@ -1043,20 +1028,21 @@ impl Window {
             // OSC 52 policy: programs may store, never read (nothing is written back).
             Event::ClipboardLoad(..) => {}
             Event::Bell => self.ring_bell(pane),
-            // Mouse cursor and blink are not handled yet.
+            // Ignored: the pointer icon is picked on every move, and each frame reads the
+            // cursor's blink state from the terminal.
             Event::MouseCursorDirty | Event::CursorBlinkingChange => {}
         }
         true
     }
 
-    /// The earliest of: the pending frame's deadline (when the scheduler deferred it to the
-    /// next refresh), the config reload's, the toast's expiry and the next cursor toggle.
-    /// `now` is the same instant `on_timers` ran with.
+    /// The earliest of every timer: the pending frame (when the scheduler deferred it to the
+    /// next refresh), config reload, autosave, toast, cursor blink, bell flash, scrollbar
+    /// linger and size labels. `now` is the same instant `on_timers` ran with.
     pub fn next_deadline(&self, now: Instant) -> Option<Instant> {
         [
             self.scheduler.deadline(),
             self.debounce.deadline(),
-            self.autosave_deadline(),
+            self.autosave_due,
             self.toast.as_ref().map(|t| t.until),
             self.blink_deadline(now),
             self.bell.map(|(_, until)| until),
@@ -1093,7 +1079,7 @@ impl Window {
         self.debounce.poke(now);
     }
 
-    /// Runs the timers due at `now`: the debounced config reload and the toast's expiry.
+    /// Runs the timers due at `now`: every timer in `next_deadline` but the frame's.
     pub fn on_timers(&mut self, now: Instant) {
         if self.debounce.take_due(now) {
             self.reload_config(now);
@@ -1528,10 +1514,7 @@ impl Window {
 
     /// A new pane under the window's default profile.
     pub(super) fn default_style(&self) -> PaneStyle {
-        PaneStyle {
-            stem: self.window_stem().to_string(),
-            zoom_pt: 0.0,
-        }
+        PaneStyle::new(self.window_stem())
     }
 
     /// The profile stem pane `id` records (an unknown pane: the window default).
@@ -1555,7 +1538,7 @@ impl Window {
         self.toast = Some(Toast::with_tail(
             text,
             tail,
-            ToastSource::Spawn,
+            ToastSource::Error,
             Instant::now(),
         ));
         self.schedule();
@@ -1618,8 +1601,9 @@ impl Window {
     /// font, so a set a pane needs is loaded.
     fn live_font_keys(&mut self) -> HashSet<u32> {
         let ids: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.tree.panes()).collect();
-        let keys: Vec<u32> = ids.into_iter().map(|id| self.pane_font(id).key).collect();
-        live_keys(self.ui_font, keys.into_iter())
+        let mut keys: HashSet<u32> = ids.into_iter().map(|id| self.pane_font(id).key).collect();
+        keys.insert(self.ui_font);
+        keys
     }
 
     /// Drop the font sets nothing draws with. After zoom, profile, config and scale
@@ -1687,10 +1671,7 @@ impl Window {
         let sibling = self.rename_sibling(id);
         let area = self.area();
         let removed = actions::remove_pane(&mut self.tabs, id, area);
-        self.panes.remove(&id);
-        self.attention.remove(id);
-        self.sizes.remove(&id);
-        self.pane_profiles.remove(&id);
+        self.forget_pane(id);
         if self.find.as_ref().is_some_and(|f| f.pane == id) {
             self.find = None;
         }
@@ -1708,13 +1689,23 @@ impl Window {
         if removed {
             // Its tab's tree minimum may only have held for this pane.
             self.refresh_min_extents();
+            self.set_focus(self.tabs.active().focused);
             // Every tab, not just the active one: in a background tab the pane
             // that took the closed one's place needs its new PTY size now.
-            self.set_focus(self.tabs.active().focused);
             self.relayout_all();
         }
         self.evict_fonts();
         true
+    }
+
+    /// Drop pane `id` (its PTY shuts down) and everything kept per pane, so a new
+    /// per-pane map has one place to be cleared.
+    pub(super) fn forget_pane(&mut self, id: PaneId) {
+        self.panes.remove(&id);
+        self.sizes.remove(&id);
+        self.pane_profiles.remove(&id);
+        self.attention.remove(id);
+        self.scrolled.remove(&id);
     }
 
     fn scroll_focused(&mut self, s: Scroll) {
@@ -1731,6 +1722,65 @@ impl Window {
 fn log_errors(errors: &[ConfigError]) {
     for e in errors {
         eprintln!("montty: {e}");
+    }
+}
+
+/// A startup problem: printed, and shown unless an earlier one already has the toast
+/// (one at a time; the config's own errors come first).
+fn startup_problem(
+    toast: &mut Option<Toast>,
+    body: &str,
+    tail: &str,
+    source: ToastSource,
+    now: Instant,
+) {
+    eprintln!("montty: {body}{tail}");
+    toast.get_or_insert_with(|| Toast::with_tail(body, tail, source, now));
+}
+
+/// A new window's first pane (not for a session window, whose panes come from the session).
+struct FirstPane<'a> {
+    id: PaneId,
+    stem: &'a str,
+    /// `-e`'s command; without one, a profile's program that can't start falls back to
+    /// a shell.
+    command: Option<Vec<String>>,
+    x11_window_id: Option<u64>,
+    size: WindowSize,
+}
+
+impl FirstPane<'_> {
+    /// The pane, and the (body, tail) of a startup problem when it fell back to a shell.
+    fn spawn(
+        self,
+        store: &Store,
+        sink: &Arc<dyn EventSink>,
+    ) -> Result<(Pane, Option<(String, String)>), String> {
+        let shell = std::env::var("SHELL").ok();
+        let opts = pane_options(
+            &store.profile(self.stem).profile,
+            self.command.clone(),
+            shell.as_deref(),
+            self.x11_window_id,
+            None,
+            store.global().kitty_keyboard,
+        );
+        let fallback_ok = self.command.is_none();
+        let (mut pane, fallback) = spawn_pane_process(
+            self.id,
+            &opts,
+            self.size,
+            sink,
+            fallback_ok,
+            shell.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+        pane.set_explicit_command(self.command);
+        let problem = fallback.map(|f| {
+            let stem = resolved_stem_of(store.contains(self.stem), self.stem, store.default_stem());
+            fallback_text(Some(stem), &f)
+        });
+        Ok((pane, problem))
     }
 }
 
@@ -1913,13 +1963,6 @@ mod tests {
         );
         // No panes: nothing required (the tree's MIN_PANE_PX floor applies).
         assert_eq!(tab_min_extent(std::iter::empty()), (0, 0));
-    }
-
-    #[test]
-    fn live_font_keys_cover_every_tab_and_the_ui() {
-        let keys = live_keys(1, [5, 7, 5].into_iter());
-        assert_eq!(keys, HashSet::from([1, 5, 7]));
-        assert_eq!(live_keys(3, std::iter::empty()), HashSet::from([3]));
     }
 
     #[test]
@@ -2138,7 +2181,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(t.text, "boom");
-        assert_eq!(t.source, ToastSource::Spawn);
+        assert_eq!(t.source, ToastSource::Error);
         assert_eq!(t.until, now + crate::ui::toast::TOAST_DURATION);
         assert!(!called.get());
     }
@@ -2156,7 +2199,7 @@ mod tests {
         assert!(error_replaces(Some(ToastSource::Info)));
         assert!(!error_replaces(Some(ToastSource::ConfigReload)));
         assert!(!error_replaces(Some(ToastSource::Startup)));
-        assert!(!error_replaces(Some(ToastSource::Spawn)));
+        assert!(!error_replaces(Some(ToastSource::Error)));
     }
 
     #[test]
@@ -2204,8 +2247,11 @@ mod tests {
         );
         assert!(fb.err.contains("No such file"), "{}", fb.err);
         assert!(!pane.runs_command(), "a fallback shell is a shell");
-        let cmdline = std::fs::read(format!("/proc/{}/cmdline", pane.shell_pid())).unwrap();
-        assert!(cmdline.starts_with(b"/bin/sh\0"), "{cmdline:?}");
+        #[cfg(not(target_os = "macos"))]
+        {
+            let cmdline = std::fs::read(format!("/proc/{}/cmdline", pane.shell_pid())).unwrap();
+            assert!(cmdline.starts_with(b"/bin/sh\0"), "{cmdline:?}");
+        }
         // -e: no fallback.
         let e = pane_options(
             &p,
@@ -2282,7 +2328,7 @@ mod tests {
         let o = pane_options(&p, None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["top".into(), "-d1".into()]));
         assert!(o.runs_command);
-        // Plan 2 defaults: $SHELL, block cursor without blink, 10 000 lines.
+        // Defaults: $SHELL, block cursor without blink, 10 000 lines.
         let o = pane_options(&Profile::default(), None, None, None, None, true);
         assert_eq!(o.command, Some(vec!["/bin/sh".into()]));
         assert_eq!(o.scrollback, 10_000);
@@ -2295,13 +2341,7 @@ mod tests {
     fn styles(stems: &[(PaneId, &str)]) -> HashMap<PaneId, PaneStyle> {
         stems
             .iter()
-            .map(|&(id, stem)| {
-                let style = PaneStyle {
-                    stem: stem.to_string(),
-                    zoom_pt: 0.0,
-                };
-                (id, style)
-            })
+            .map(|&(id, stem)| (id, PaneStyle::new(stem)))
             .collect()
     }
 
@@ -2451,13 +2491,6 @@ mod tests {
     }
 
     #[test]
-    fn synthetic_presses_are_ignored() {
-        assert!(handles_key(false));
-        // Keys held while the window gains focus (e.g. the Ctrl+Alt+T that launched us).
-        assert!(!handles_key(true));
-    }
-
-    #[test]
     fn release_of_a_consumed_key_is_swallowed_once_even_under_a_modal() {
         use winit::keyboard::KeyCode;
         let k = PhysicalKey::Code(KeyCode::KeyT);
@@ -2525,7 +2558,7 @@ mod tests {
     #[test]
     fn all_layouts_covers_hidden_tabs() {
         let mut tabs = three_tabs();
-        tabs.iter_mut().nth(1).unwrap().tree.toggle_maximize(3);
+        tabs.get_mut(1).unwrap().tree.toggle_maximize(3);
         let area = Rect {
             x: 0,
             y: 0,

@@ -25,6 +25,7 @@ for icon in assets/icon/hicolor/*/apps/montty.png; do
     install -Dm644 "$icon" "$root/usr/share/icons/hicolor/$size/apps/montty.png"
 done
 install -Dm644 README.md "$root/usr/share/doc/montty/README.md"
+install -Dm644 docs/config.md "$root/usr/share/doc/montty/config.md"
 
 mkdir -p "$root/usr/share/doc/montty"
 {

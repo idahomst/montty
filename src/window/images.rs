@@ -12,8 +12,8 @@ use winit::dpi::PhysicalSize;
 use super::{Window, resolved_stem_of, watcher_toast};
 use crate::config::watch::{config_watch_dirs, with_files};
 use crate::decoder::decode_in_helper;
+use crate::events::UserEvent;
 use crate::render::image::Rgba8;
-use crate::term::pane::UserEvent;
 use crate::ui::toast::{Toast, ToastSource};
 
 /// Images are downscaled to at most this, or to the largest monitor when that is larger.
@@ -360,9 +360,8 @@ impl Window {
         for e in &errs {
             eprintln!("montty: config watcher: {e}");
         }
-        // Only dirs that newly fail come back, so a dir that keeps failing doesn't show a
-        // toast on every reload. Config errors, startup and spawn problems stay up: the
-        // watcher's toast would hide them (the stderr line remains).
+        // Only dirs that newly fail come back (no toast per reload); a more important
+        // toast stays up.
         let busy = self.toast.as_ref().is_some_and(|t| {
             !matches!(
                 t.source,
@@ -392,9 +391,18 @@ impl Window {
         let wid = self.window.id();
         let key = path.clone();
         let job = move || {
-            // Not `current_exe()`: once the binary is replaced (an upgrade) that path reads
-            // "… (deleted)", while /proc/self/exe still executes the running image.
-            let exe = Path::new("/proc/self/exe");
+            // Not `current_exe()` on Linux: once the binary is replaced (an upgrade) that
+            // path reads "… (deleted)", while /proc/self/exe still executes the running
+            // image. macOS has no /proc; there an upgrade's new binary runs as the helper.
+            #[cfg(not(target_os = "macos"))]
+            let exe = PathBuf::from("/proc/self/exe");
+            #[cfg(target_os = "macos")]
+            let Ok(exe) = std::env::current_exe() else {
+                let err = Err("cannot find montty's own binary".to_string());
+                sink.send(UserEvent::ImageLoaded(wid, key, id, err));
+                return;
+            };
+            let exe = exe.as_path();
             let img = decode_in_helper(exe, &file, max, DECODE_TIMEOUT).map(Arc::new);
             sink.send(UserEvent::ImageLoaded(wid, key, id, img));
         };
@@ -419,6 +427,7 @@ impl Window {
             if self.images.is_current(&path, id) {
                 return self.start_helper((path, id));
             }
+            // The skipped job hands its slot to the next one.
             next = self.decode_gate.finish();
             // Clears the stale request; a file that changed meanwhile is requested again.
             if let Loaded::Load(id) = self.images.loaded(&path, id) {

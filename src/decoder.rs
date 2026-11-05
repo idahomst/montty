@@ -88,7 +88,8 @@ fn limit_address_space() {
         rlim_cur: HELPER_AS_LIMIT as libc::rlim_t,
         rlim_max: HELPER_AS_LIMIT as libc::rlim_t,
     };
-    // Best effort: without the limit the decode still works, just unbounded.
+    // Best effort: without the limit the decode still works, just unbounded. macOS accepts
+    // RLIMIT_AS but does not enforce it; there only `MAX_PIXELS` bounds a decode.
     // SAFETY: setrlimit only reads the struct.
     unsafe { libc::setrlimit(libc::RLIMIT_AS, &lim) };
 }
@@ -201,8 +202,7 @@ mod tests {
 
     #[test]
     fn huge_files_are_not_read() {
-        let dir = std::env::temp_dir().join(format!("montty-img-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::testutil::TempDir::new("img");
         let f = dir.join("huge.png");
         // Sparse: no disk space or reading involved.
         std::fs::File::create(&f)
@@ -212,7 +212,6 @@ mod tests {
         let e = read_capped(&f).unwrap_err();
         std::fs::write(&f, b"small").unwrap();
         let ok = read_capped(&f);
-        std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(e, "image file too large");
         assert_eq!(ok.unwrap(), b"small");
     }

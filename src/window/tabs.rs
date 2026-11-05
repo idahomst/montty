@@ -62,7 +62,6 @@ impl Tabs {
         self.active
     }
 
-    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.tabs.len()
     }
@@ -79,6 +78,18 @@ impl Tabs {
 
     pub fn iter(&self) -> impl Iterator<Item = &Tab> {
         self.tabs.iter()
+    }
+
+    /// Replaces every tab with `tabs` (not empty) and activates `active`.
+    pub fn replace_all(&mut self, tabs: Vec<Tab>, active: usize) {
+        debug_assert!(!tabs.is_empty());
+        self.tabs = tabs;
+        self.active = active.min(self.tabs.len().saturating_sub(1));
+        self.generation += 1;
+    }
+
+    pub fn get_mut(&mut self, i: usize) -> Option<&mut Tab> {
+        self.tabs.get_mut(i)
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Tab> {
@@ -150,16 +161,14 @@ impl Tabs {
     }
 
     pub fn tab_of(&self, pane: PaneId) -> Option<usize> {
-        self.tabs
-            .iter()
-            .position(|t| t.tree.panes().contains(&pane))
+        self.tabs.iter().position(|t| t.tree.contains(pane))
     }
 }
 
 /// True when `pane` is in the active tab and not hidden behind another
 /// maximized pane.
 pub fn visible(tabs: &Tabs, pane: PaneId) -> bool {
-    if tabs.is_empty() || !tabs.active().tree.panes().contains(&pane) {
+    if tabs.is_empty() || !tabs.active().tree.contains(pane) {
         return false;
     }
     tabs.active().tree.maximized().is_none_or(|m| m == pane)
@@ -184,6 +193,16 @@ mod tests {
         t.push(tab(2));
         t.push(tab(3));
         t
+    }
+
+    #[test]
+    fn replace_all_swaps_tabs_and_bumps_generation() {
+        let mut t = three();
+        let g = t.generation();
+        t.replace_all(vec![tab(7), tab(8)], 1);
+        assert_eq!(order(&t), [7, 8]);
+        assert_eq!(t.active_index(), 1);
+        assert_ne!(t.generation(), g);
     }
 
     #[test]

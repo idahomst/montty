@@ -6,7 +6,7 @@
 use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
-/// Records kept per pane (the spec's minimum); the least recently updated is evicted.
+/// Records kept per pane (the Program Status Protocol's minimum); the least recently updated is evicted.
 pub const MAX_RECORDS: usize = 64;
 
 const MAX_KEY: usize = 16;
@@ -121,6 +121,7 @@ pub fn parse_report(payload: &str) -> Option<Report> {
             "msg" => {
                 msg = Some(decode_text(value, MAX_MSG_ENCODED, MAX_MSG)?).filter(|m| !m.is_empty())
             }
+            // Not shown, but a malformed title rejects the report like any other field.
             "title" => {
                 decode_text(value, MAX_TITLE_ENCODED, MAX_TITLE)?;
             }

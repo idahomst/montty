@@ -23,8 +23,19 @@ pub enum Scope {
     Only(Vec<PathBuf>),
 }
 
-/// The scope of every watched dir, shared with notify's thread.
-type Filter = Arc<Mutex<HashMap<PathBuf, Scope>>>;
+/// What notify's thread needs to place an event.
+#[derive(Default)]
+struct Scopes {
+    /// The scope of every watched dir, by the path it was watched as.
+    dirs: HashMap<PathBuf, Scope>,
+    /// Watched dirs by their canonical path, where that differs: FSEvents (macOS) names
+    /// paths canonically, and a dir can sit behind a symlink (macOS's /var -> /private/var,
+    /// dotfile setups).
+    aliases: HashMap<PathBuf, PathBuf>,
+}
+
+/// Shared with notify's thread.
+type Filter = Arc<Mutex<Scopes>>;
 
 /// Watches directories, not files: an editor that saves by writing a temp file and renaming
 /// it over the original still triggers a change. Dropping it stops watching.
@@ -62,7 +73,21 @@ fn newly_failed(seen: &mut HashSet<PathBuf>, failed: &[(PathBuf, String)]) -> Ve
 
 /// Whether an event naming `path` counts: the path is in a dir watched with `All` (or is
 /// that dir), or is one of the paths a `Only` dir watches for.
-fn in_scope(filter: &HashMap<PathBuf, Scope>, path: &Path) -> bool {
+fn in_scope(scopes: &Scopes, path: &Path) -> bool {
+    in_dirs(&scopes.dirs, path)
+        || as_watched(scopes, path).is_some_and(|p| in_dirs(&scopes.dirs, &p))
+}
+
+/// `path` under the name its dir was watched as, when it came through an alias.
+fn as_watched(scopes: &Scopes, path: &Path) -> Option<PathBuf> {
+    if let Some(dir) = scopes.aliases.get(path) {
+        return Some(dir.clone());
+    }
+    let dir = scopes.aliases.get(path.parent()?)?;
+    Some(dir.join(path.file_name()?))
+}
+
+fn in_dirs(filter: &HashMap<PathBuf, Scope>, path: &Path) -> bool {
     if filter.get(path) == Some(&Scope::All) {
         return true;
     }
@@ -113,7 +138,7 @@ impl Watcher {
         })
     }
 
-    fn scopes(&self) -> MutexGuard<'_, HashMap<PathBuf, Scope>> {
+    fn scopes(&self) -> MutexGuard<'_, Scopes> {
         self.filter.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
@@ -138,19 +163,36 @@ impl Watcher {
         for d in &dropped {
             // Fails when the OS already dropped it (the dir is gone): nothing to undo.
             let _ = self.inner.unwatch(d);
-            self.scopes().remove(d);
+            let mut scopes = self.scopes();
+            scopes.dirs.remove(d);
+            scopes.aliases.retain(|_, watched| watched != d);
         }
         let mut failed = Vec::new();
         self.set.clear();
         for (dir, scope) in dirs {
-            // The scope goes in first: an event between the OS watch and the scope would
-            // otherwise be dropped.
-            let old = self.scopes().insert(dir.clone(), scope.clone());
+            // The scope (and the canonical alias) go in first: an event between the OS watch
+            // and the scope would otherwise be dropped.
+            let alias = dir.canonicalize().ok().filter(|c| c != dir);
+            let old = {
+                let mut scopes = self.scopes();
+                if let Some(c) = &alias {
+                    scopes.aliases.insert(c.clone(), dir.clone());
+                }
+                scopes.dirs.insert(dir.clone(), scope.clone())
+            };
             if let Err(e) = self.add(dir) {
+                let mut scopes = self.scopes();
                 match old {
-                    Some(old) => self.scopes().insert(dir.clone(), old),
-                    None => self.scopes().remove(dir),
-                };
+                    Some(old) => {
+                        scopes.dirs.insert(dir.clone(), old);
+                    }
+                    None => {
+                        scopes.dirs.remove(dir);
+                        if let Some(c) = &alias {
+                            scopes.aliases.remove(c);
+                        }
+                    }
+                }
                 failed.push((dir.clone(), e));
                 continue;
             }
@@ -204,17 +246,24 @@ pub fn config_watch_dirs(dir: &Path) -> Vec<(PathBuf, Scope)> {
         let Some(parent) = target.parent().filter(|p| !covered.iter().any(|c| c == p)) else {
             continue;
         };
-        match out.iter_mut().find(|(d, _)| d == parent) {
-            Some((_, Scope::Only(targets))) => {
-                if !targets.contains(&target) {
-                    targets.push(target);
-                }
-            }
-            Some((_, Scope::All)) => {}
-            None => out.push((parent.to_path_buf(), Scope::Only(vec![target]))),
-        }
+        let parent = parent.to_path_buf();
+        watch_file(&mut out, parent, target);
     }
     out
+}
+
+/// Have `dirs` see events for `file` in `parent`: nothing to add under an `All` watch,
+/// else added to that dir's `Only` list, or a new `Only` entry.
+fn watch_file(dirs: &mut Vec<(PathBuf, Scope)>, parent: PathBuf, file: PathBuf) {
+    match dirs.iter_mut().find(|(d, _)| *d == parent) {
+        Some((_, Scope::All)) => {}
+        Some((_, Scope::Only(files))) => {
+            if !files.contains(&file) {
+                files.push(file);
+            }
+        }
+        None => dirs.push((parent, Scope::Only(vec![file]))),
+    }
 }
 
 /// `dirs` (see `config_watch_dirs`) plus the dir of each of `files` (background images),
@@ -228,15 +277,8 @@ pub fn with_files(mut dirs: Vec<(PathBuf, Scope)>, files: &[PathBuf]) -> Vec<(Pa
             let Some(parent) = file.parent().filter(|p| p.is_dir()) else {
                 continue;
             };
-            match dirs.iter_mut().find(|(d, _)| d == parent) {
-                Some((_, Scope::All)) => {}
-                Some((_, Scope::Only(paths))) => {
-                    if !paths.contains(&file) {
-                        paths.push(file);
-                    }
-                }
-                None => dirs.push((parent.to_path_buf(), Scope::Only(vec![file]))),
-            }
+            let parent = parent.to_path_buf();
+            watch_file(&mut dirs, parent, file);
         }
     }
     dirs
@@ -275,7 +317,6 @@ impl Debounce {
 mod tests {
     use super::*;
     use std::fs;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -310,6 +351,29 @@ mod tests {
         // The next event starts a new burst.
         d.poke(t0 + ms(3000));
         assert_eq!(d.deadline(), Some(t0 + ms(3150)));
+    }
+
+    #[test]
+    fn canonical_paths_count_through_aliases() {
+        let p = PathBuf::from;
+        let mut scopes = Scopes::default();
+        scopes.dirs.insert(p("/var/t/all"), Scope::All);
+        scopes
+            .dirs
+            .insert(p("/var/t/only"), Scope::Only(vec![p("/var/t/only/a.png")]));
+        scopes
+            .aliases
+            .insert(p("/private/var/t/all"), p("/var/t/all"));
+        scopes
+            .aliases
+            .insert(p("/private/var/t/only"), p("/var/t/only"));
+        // As watched (inotify) and as canonical (FSEvents).
+        assert!(in_scope(&scopes, Path::new("/var/t/all/x")));
+        assert!(in_scope(&scopes, Path::new("/private/var/t/all/x")));
+        assert!(in_scope(&scopes, Path::new("/private/var/t/all")));
+        assert!(in_scope(&scopes, Path::new("/private/var/t/only/a.png")));
+        assert!(!in_scope(&scopes, Path::new("/private/var/t/only/b.png")));
+        assert!(!in_scope(&scopes, Path::new("/private/var/t/other/x")));
     }
 
     #[test]
@@ -353,32 +417,11 @@ mod tests {
         );
     }
 
-    static COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    struct Tmp(PathBuf);
-
-    impl Tmp {
-        fn new() -> Tmp {
-            let p = std::env::temp_dir().join(format!(
-                "montty-watch-{}-{}",
-                std::process::id(),
-                COUNTER.fetch_add(1, Ordering::Relaxed)
-            ));
-            let _ = fs::remove_dir_all(&p);
-            fs::create_dir_all(&p).unwrap();
-            Tmp(p)
-        }
-    }
-
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::testutil::TempDir as Tmp;
 
     #[test]
     fn watch_dirs_existing_subdirs() {
-        let t = Tmp::new();
+        let t = Tmp::new("watch");
         let dir = t.0.join("montty");
         // No config dir yet: its parent, for the dir's own name only.
         assert_eq!(
@@ -409,7 +452,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn watch_dirs_follow_symlinked_files() {
-        let t = Tmp::new();
+        let t = Tmp::new("watch");
         let dir = t.0.join("montty");
         let dots = t.0.join("dotfiles");
         let other = t.0.join("other");
@@ -459,9 +502,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn image_files_watched_by_name() {
-        let t = Tmp::new();
-        let dir = t.0.join("montty");
-        let pics = t.0.join("pics");
+        let t = Tmp::new("watch");
+        // Canonical: macOS's temp dir is under the /var -> /private/var link, which would
+        // add a watch of its own for every file.
+        let root = t.0.canonicalize().unwrap();
+        let dir = root.join("montty");
+        let pics = root.join("pics");
         fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(&pics).unwrap();
         fs::write(pics.join("a.png"), "").unwrap();
@@ -474,7 +520,7 @@ mod tests {
             dir.join("bg.png"),
             pics.join("a.png"),
             pics.join("b.jpg"),
-            t.0.join("gone/c.png"),
+            root.join("gone/c.png"),
         ];
         assert_eq!(
             with_files(base.clone(), &files),
@@ -487,7 +533,7 @@ mod tests {
             ]
         );
         // A symlink: its own dir for the link's name, the target's dir for the target.
-        let other = t.0.join("other");
+        let other = root.join("other");
         fs::create_dir_all(&other).unwrap();
         fs::write(other.join("real.png"), "").unwrap();
         std::os::unix::fs::symlink(other.join("real.png"), pics.join("link.png")).unwrap();

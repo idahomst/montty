@@ -1,6 +1,8 @@
-//! Self-drawn UI chrome primitives: theme, icons and text layout.
+//! Pure chrome state and geometry (no GL).
 
 use std::time::Duration;
+
+use crate::layout::Rect;
 
 pub mod confirm;
 pub mod findbar;
@@ -27,6 +29,22 @@ pub const EDGE_PX: i32 = 4;
 /// `EDGE_PX` at `scale`: `round(EDGE_PX × scale)`, at least 1 px.
 pub fn edge_px(scale: f64) -> i32 {
     ((f64::from(EDGE_PX) * scale).round() as i32).max(1)
+}
+
+/// A modal's size along one axis: what it wants, at most 90 % of the window's `win` px.
+pub fn modal_extent(want: i32, win: i32) -> i32 {
+    want.min(win * 9 / 10).max(0)
+}
+
+/// A `w` × `h` box centered in a `win_w` × `win_h` window (from the top-left corner when
+/// it doesn't fit).
+pub fn centered(w: i32, h: i32, win_w: i32, win_h: i32) -> Rect {
+    Rect {
+        x: ((win_w - w) / 2).max(0),
+        y: ((win_h - h) / 2).max(0),
+        w,
+        h,
+    }
 }
 
 #[cfg(test)]

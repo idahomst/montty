@@ -1,6 +1,7 @@
 //! Frame drawing: the top bar, the panes, the tiling chrome, the pane hover
 //! overlay, then an open modal on top.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use alacritty_terminal::grid::Dimensions;
@@ -14,9 +15,10 @@ use super::pane_drag::{PaneDrag, paint_drop_target};
 use super::sizes::{size_label_rect, size_text};
 use super::{Window, scrollbar_visible};
 use crate::config::GlobalConfig;
+use crate::config::store::Resolved;
 use crate::layout::{Divider, PaneId, Rect};
 use crate::render::image;
-use crate::render::{RectInstance, ShapeInstance};
+use crate::render::{PaneDraw, RectInstance, ShapeInstance};
 use crate::term::colors::Rgb;
 use crate::term::snapshot::Highlights;
 use crate::ui::icons::{Icon, icon_shapes};
@@ -51,159 +53,183 @@ impl ChromeColors {
     }
 }
 
+/// What every pane of a frame shares.
+struct PaneFrame {
+    began: Instant,
+    focused_id: PaneId,
+    translucent: bool,
+    clear_bg: Rgb,
+}
+
 impl Window {
     pub fn redraw(&mut self) {
         // The frame cadence counts from here, not from after the swap.
         let began = Instant::now();
         if self.size.width > 0 && self.size.height > 0 && self.ensure_current() {
-            let focused_id = self.tabs.active().focused;
-            let area = self.area();
-            let layout = self.tabs.active().tree.layout(area);
-            let translucent = any_translucent(&layout, |id| {
-                self.panes.contains_key(&id) && self.pane_profile(id).profile.opacity < 1.0
-            });
-            // An opaque window's background is the focused pane's; other panes fill their
-            // own. A translucent window clears to transparent and every pane fills its own.
-            let clear_bg = self.pane_profile(focused_id).palette.bg;
-            self.renderer
-                .begin_frame(frame_clear(translucent, clear_bg));
-            self.draw_bar();
-            for &(id, rect) in &layout {
-                if !self.panes.contains_key(&id) {
-                    continue;
-                }
-                let font = self.pane_font(id);
-                let profile = self.pane_profile(id);
-                let palette = &profile.palette;
-                let Some(pane) = self.panes.get(&id) else {
-                    continue;
-                };
-                let (lines, history) = {
-                    let term = pane.term.lock();
-                    let bright = profile.profile.bold_is_bright;
-                    let link = (self.links.hover.as_ref())
-                        .filter(|(pane, _)| *pane == id)
-                        .map(|(_, l)| &l.range);
-                    // The find pane's visible matches, found under this same lock.
-                    let find = self.find.as_mut().filter(|f| f.pane == id);
-                    let (matches, current) = match find {
-                        Some(f) => (
-                            (f.regex.as_mut())
-                                .map(|re| visible_matches(&term, re))
-                                .unwrap_or_default(),
-                            f.current.clone(),
-                        ),
-                        None => (Vec::new(), None),
-                    };
-                    let hl = Highlights {
-                        matches: &matches,
-                        current: current.as_ref(),
-                        link,
-                    };
-                    self.snapshot.capture(&term, palette, bright, &hl);
-                    (term.screen_lines(), term.grid().history_size())
-                };
-                // The effective default bg (an OSC 11 override, else the palette's) at the
-                // profile's opacity.
-                let bg = self.snapshot.bg;
-                let opacity = profile.profile.opacity;
-                if translucent || bg != clear_bg {
-                    let mut color = theme::from_rgb(bg);
-                    color[3] = opacity;
-                    self.renderer.draw_rects(&[RectInstance { rect, color }]);
-                }
-                // Then its background image, if loaded, at the image's opacity.
-                let image = (profile.profile.background_image.as_ref())
-                    .and_then(|img| Some((img, self.images.texture(&img.path)?)));
-                if let Some((img, tex)) = image
-                    && let Some((dest, uv)) = image::fit_rect(img.fit, (tex.w, tex.h), rect)
-                {
-                    let repeat = image::repeats(img.fit);
-                    self.renderer.draw_image(tex, dest, uv, img.opacity, repeat);
-                }
-                // Default-bg cells of a translucent pane let its bg rect show through, and
-                // those over an image let the image show.
-                let default_bg_alpha = if opacity < 1.0 || image.is_some() {
-                    0
-                } else {
-                    255
-                };
-                self.renderer.set_cursor_color(palette.cursor);
-                let Some(fonts) = self.fonts.by_key(font.key) else {
-                    continue;
-                };
-                // Unfocused panes (and every pane of an unfocused window) get a hollow cursor.
-                let focused = self.window_focused && id == focused_id;
-                // Only the focused pane blinks: in the hidden phase the cursor isn't drawn.
-                // The frame also records what it found and drew: `blink_on` (does the focused
-                // pane's cursor blink now? it follows the program's DECSCUSR) arms the blink
-                // timer, and `blink_shown` is what `on_timers` compares the clock's phase to.
-                if focused {
-                    self.blink_on = self.snapshot.blinking;
-                    self.blink_shown = !self.blink_on || self.blink.visible(began);
-                    if !self.blink_shown {
-                        self.snapshot.cursor = None;
-                    }
-                }
-                self.renderer.draw_pane(
-                    rect,
-                    rect.inset(font.padding),
-                    &self.snapshot,
-                    fonts,
-                    &font.metrics,
-                    focused,
-                    default_bg_alpha,
-                );
-                let last_scroll = self.scrolled.get(&id).copied();
-                if scrollbar_visible(self.snapshot.display_offset, last_scroll, began)
-                    && let Some(thumb) = scrollbar_thumb(
-                        rect,
-                        lines,
-                        history,
-                        self.snapshot.display_offset,
-                        self.scale,
-                    )
-                {
-                    let mut color = theme::TEXT_DIM;
-                    color[3] = 0.6;
-                    self.renderer
-                        .draw_rects(&[RectInstance { rect: thumb, color }]);
-                }
-                // The bell's flash over the whole pane.
-                if self.bell.is_some_and(|(b, _)| b == id) {
-                    let mut color = theme::TEXT;
-                    color[3] = 0.25;
-                    self.renderer.draw_rects(&[RectInstance { rect, color }]);
-                }
-            }
-            let colors = ChromeColors::of(self.store.global());
-            let dividers = self.tabs.active().tree.dividers(area);
-            let rects = chrome(&layout, &dividers, focused_id, &colors);
-            self.renderer.draw_rects(&rects);
-            if let Some(PaneDrag::Dragging { over: Some(t), .. }) = self.mouse.pane_drag
-                && let Some(&(_, rect)) = layout.iter().find(|&&(id, _)| id == t)
-            {
-                let rects = paint_drop_target(rect, self.chrome_stroke());
-                self.renderer.draw_rects(&rects);
-            }
-            self.draw_pane_dots(&layout);
-            self.draw_find();
-            self.draw_overlay();
-            self.draw_size_labels();
-            self.draw_link_label();
-            self.draw_mark_hover();
-            self.draw_toast();
-            // Last, over everything.
-            self.draw_modal();
-            self.window.pre_present_notify();
-            if let Err(e) = self.gl_surface.swap_buffers(&self.gl_context) {
-                eprintln!("montty: swap_buffers: {e}");
-            }
+            self.draw_frame(began);
         }
         self.scheduler.frame_drawn(began);
         if std::mem::take(&mut self.resize_redraw) {
             self.schedule();
         }
+    }
+
+    fn draw_frame(&mut self, began: Instant) {
+        let focused_id = self.tabs.active().focused;
+        let area = self.area();
+        let layout = self.tabs.active().tree.layout(area);
+        // Each visible pane's profile, looked up once per frame.
+        let visible: Vec<(PaneId, Rect, Arc<Resolved>)> = (layout.iter())
+            .filter(|(id, _)| self.panes.contains_key(id))
+            .map(|&(id, rect)| (id, rect, self.pane_profile(id)))
+            .collect();
+        let translucent = visible.iter().any(|(_, _, p)| p.profile.opacity < 1.0);
+        // An opaque window's background is the focused pane's; other panes fill their
+        // own. A translucent window clears to transparent and every pane fills its own.
+        let clear_bg = match visible.iter().find(|(id, _, _)| *id == focused_id) {
+            Some((_, _, p)) => p.palette.bg,
+            None => self.pane_profile(focused_id).palette.bg,
+        };
+        self.renderer
+            .begin_frame(frame_clear(translucent, clear_bg));
+        self.draw_bar();
+        let frame = PaneFrame {
+            began,
+            focused_id,
+            translucent,
+            clear_bg,
+        };
+        for (id, rect, profile) in visible {
+            self.draw_one_pane(id, rect, &profile, &frame);
+        }
+        let colors = ChromeColors::of(self.store.global());
+        let dividers = self.tabs.active().tree.dividers(area);
+        let rects = chrome(&layout, &dividers, focused_id, &colors);
+        self.renderer.draw_rects(&rects);
+        if let Some(PaneDrag::Dragging { over: Some(t), .. }) = self.mouse.pane_drag
+            && let Some(&(_, rect)) = layout.iter().find(|&&(id, _)| id == t)
+        {
+            let rects = paint_drop_target(rect, self.chrome_stroke());
+            self.renderer.draw_rects(&rects);
+        }
+        self.draw_pane_dots(&layout);
+        self.draw_find();
+        self.draw_overlay();
+        self.draw_size_labels();
+        self.draw_link_label();
+        self.draw_mark_hover();
+        self.draw_toast();
+        // Last, over everything.
+        self.draw_modal();
+        self.window.pre_present_notify();
+        if let Err(e) = self.gl_surface.swap_buffers(&self.gl_context) {
+            eprintln!("montty: swap_buffers: {e}");
+        }
+    }
+
+    /// Pane `id` at `rect`: its background, image, cells, scrollbar and bell flash.
+    fn draw_one_pane(&mut self, id: PaneId, rect: Rect, profile: &Resolved, frame: &PaneFrame) {
+        let font = self.pane_font(id);
+        let palette = &profile.palette;
+        let Some((lines, history)) = self.capture_snapshot(id, profile) else {
+            return;
+        };
+        // The effective default bg (an OSC 11 override, else the palette's) at the
+        // profile's opacity.
+        let bg = self.snapshot.bg;
+        let opacity = profile.profile.opacity;
+        if frame.translucent || bg != frame.clear_bg {
+            let mut color = theme::from_rgb(bg);
+            color[3] = opacity;
+            self.renderer.draw_rects(&[RectInstance { rect, color }]);
+        }
+        // Then its background image, if loaded, at the image's opacity.
+        let image = (profile.profile.background_image.as_ref())
+            .and_then(|img| Some((img, self.images.texture(&img.path)?)));
+        if let Some((img, tex)) = image
+            && let Some((dest, uv)) = image::fit_rect(img.fit, (tex.w, tex.h), rect)
+        {
+            let repeat = image::repeats(img.fit);
+            self.renderer.draw_image(tex, dest, uv, img.opacity, repeat);
+        }
+        // Default-bg cells of a translucent pane let its bg rect show through, and
+        // those over an image let the image show.
+        let default_bg_alpha = if opacity < 1.0 || image.is_some() {
+            0
+        } else {
+            255
+        };
+        self.renderer.set_cursor_color(palette.cursor);
+        let Some(fonts) = self.fonts.by_key(font.key) else {
+            return;
+        };
+        // Unfocused panes (and every pane of an unfocused window) get a hollow cursor.
+        let focused = self.window_focused && id == frame.focused_id;
+        // Only the focused pane blinks; the hidden phase draws no cursor.
+        if focused {
+            self.blink_on = self.snapshot.blinking;
+            self.blink_shown = !self.blink_on || self.blink.visible(frame.began);
+            if !self.blink_shown {
+                self.snapshot.cursor = None;
+            }
+        }
+        let pane = PaneDraw {
+            clip: rect,
+            content: rect.inset(font.padding),
+            metrics: &font.metrics,
+            focused,
+            default_bg_alpha,
+        };
+        self.renderer.draw_pane(&pane, &self.snapshot, fonts);
+        let last_scroll = self.scrolled.get(&id).copied();
+        if scrollbar_visible(self.snapshot.display_offset, last_scroll, frame.began)
+            && let Some(thumb) = scrollbar_thumb(
+                rect,
+                lines,
+                history,
+                self.snapshot.display_offset,
+                self.scale,
+            )
+        {
+            let mut color = theme::TEXT_DIM;
+            color[3] = 0.6;
+            self.renderer
+                .draw_rects(&[RectInstance { rect: thumb, color }]);
+        }
+        // The bell's flash over the whole pane.
+        if self.bell.is_some_and(|(b, _)| b == id) {
+            let mut color = theme::TEXT;
+            color[3] = 0.25;
+            self.renderer.draw_rects(&[RectInstance { rect, color }]);
+        }
+    }
+
+    /// Copy pane `id`'s visible cells into `self.snapshot` under one brief lock, with the
+    /// hovered link and the find matches; returns its (screen lines, history size).
+    fn capture_snapshot(&mut self, id: PaneId, profile: &Resolved) -> Option<(usize, usize)> {
+        let term = self.panes.get(&id)?.term.lock();
+        let link = (self.links.hover.as_ref())
+            .filter(|(pane, _)| *pane == id)
+            .map(|(_, l)| &l.range);
+        // The find pane's visible matches, found under this same lock.
+        let find = self.find.as_mut().filter(|f| f.pane == id);
+        let (matches, current) = match find {
+            Some(f) => (
+                (f.regex.as_mut())
+                    .map(|re| visible_matches(&term, re))
+                    .unwrap_or_default(),
+                f.current.clone(),
+            ),
+            None => (Vec::new(), None),
+        };
+        let hl = Highlights {
+            matches: &matches,
+            current: current.as_ref(),
+            link,
+        };
+        let bright = profile.profile.bold_is_bright;
+        self.snapshot.capture(&term, &profile.palette, bright, &hl);
+        Some((term.screen_lines(), term.grid().history_size()))
     }
 
     /// The hover overlay of the pane under the pointer (none while a modal
@@ -238,7 +264,7 @@ impl Window {
             };
             let text = size_text(size.num_cols, size.num_lines);
             if let Some(rect) = size_label_rect(pane, display_width(&text), &bm) {
-                self.draw_paint(&paint_link_label(rect, &text, &bm, stroke));
+                self.draw_paint(&paint_label_box(rect, &text, &bm, stroke));
             }
         }
     }
@@ -300,7 +326,7 @@ impl Window {
         let Some(rect) = label_rect(first, last, pane, cols, &bm) else {
             return;
         };
-        let p = paint_link_label(rect, &text, &bm, self.chrome_stroke());
+        let p = paint_label_box(rect, &text, &bm, self.chrome_stroke());
         self.draw_paint(&p);
     }
 
@@ -315,15 +341,6 @@ impl Window {
     }
 }
 
-/// Whether the frame needs a transparent clear: some visible pane in `layout` (the active
-/// tab's, so a maximized pane hides the others) is translucent per `needs_clear`.
-pub(super) fn any_translucent(
-    layout: &[(PaneId, Rect)],
-    needs_clear: impl FnMut(PaneId) -> bool,
-) -> bool {
-    layout.iter().map(|&(id, _)| id).any(needs_clear)
-}
-
 /// The frame's clear color: transparent when any visible pane is translucent (each
 /// pane then fills its own bg at its opacity), else the opaque `bg`.
 pub(super) fn frame_clear(any_translucent: bool, bg: Rgb) -> [f32; 4] {
@@ -334,9 +351,8 @@ pub(super) fn frame_clear(any_translucent: bool, bg: Rgb) -> [f32; 4] {
     }
 }
 
-/// The toast in a `win_w` × `win_h` window: TOAST_BG inside a `stroke` px TOAST_BORDER,
-/// its text in TOAST_TEXT, truncated to the toast. An info toast is PANEL_BG inside
-/// PANEL_BORDER with TEXT instead (not an error).
+/// The toast in a `win_w` × `win_h` window, in a `stroke` px frame, its text truncated
+/// to the toast. An info toast takes the panel's colors: it is not an error.
 pub(super) fn paint_toast(
     t: &Toast,
     win_w: i32,
@@ -373,7 +389,7 @@ pub(super) fn paint_toast(
 
 /// The link address label in `rect`: an overlay-style box holding `text` in TEXT, cut
 /// with an ellipsis when the box is narrower.
-pub(super) fn paint_link_label(rect: Rect, text: &str, bm: &BarMetrics, stroke: i32) -> BarPaint {
+pub(super) fn paint_label_box(rect: Rect, text: &str, bm: &BarMetrics, stroke: i32) -> BarPaint {
     let mut out = BarPaint::default();
     if rect.w <= 2 * stroke || rect.h <= 2 * stroke {
         return out;
@@ -424,22 +440,9 @@ pub(super) fn chrome(
     if layout.len() > 1
         && let Some(&(_, r)) = layout.iter().find(|&&(id, _)| id == focused)
     {
+        // Not overlapping, so a translucent border color doesn't blend twice at the corners.
         let b = BORDER_PX.min(r.w).min(r.h);
-        let edges = [
-            Rect { h: b, ..r },
-            Rect {
-                y: r.y + r.h - b,
-                h: b,
-                ..r
-            },
-            Rect { w: b, ..r },
-            Rect {
-                x: r.x + r.w - b,
-                w: b,
-                ..r
-            },
-        ];
-        out.extend(edges.into_iter().map(|rect| RectInstance {
+        out.extend(border_rects(r, b).into_iter().map(|rect| RectInstance {
             rect,
             color: colors.border,
         }));
@@ -475,10 +478,10 @@ pub(super) fn border_rects(r: Rect, s: i32) -> Vec<Rect> {
     .collect()
 }
 
-/// The pane overlay: OVERLAY_BG inside a `stroke` px OVERLAY_BORDER, the
-/// hovered button in HOVER (Close in CLOSE_HOVER, as in the bar) within the
-/// border, then the icons (`line` px strokes): Restore instead of Maximize while the
-/// pane is maximized. An empty overlay (tiny pane) paints nothing.
+/// The pane overlay in a `stroke` px frame, the hovered button highlighted within the
+/// border (Close in red, as in the bar), then the icons (`line` px strokes): Restore
+/// instead of Maximize while the pane is maximized. An empty overlay (tiny pane) paints
+/// nothing.
 pub(super) fn paint_overlay(
     o: &Overlay,
     hover: Option<OverlayTarget>,
@@ -508,17 +511,7 @@ pub(super) fn paint_overlay(
                 }
                 OverlayTarget::Close => theme::CLOSE_HOVER,
             };
-            let x0 = rect.x.max(inner.x);
-            let x1 = (rect.x + rect.w).min(inner.x + inner.w);
-            let y0 = rect.y.max(inner.y);
-            let y1 = (rect.y + rect.h).min(inner.y + inner.h);
-            if x1 > x0 && y1 > y0 {
-                let within = Rect {
-                    x: x0,
-                    y: y0,
-                    w: x1 - x0,
-                    h: y1 - y0,
-                };
+            if let Some(within) = rect.intersect(inner) {
                 out.push(fill(within, color));
             }
         }
@@ -574,21 +567,6 @@ mod tests {
         assert_eq!(frame_clear(true, bg), [0.0; 4]);
         let v = f32::from(0x1e_u8) / 255.0;
         assert_eq!(frame_clear(false, bg), [v, v, v, 1.0]);
-    }
-
-    #[test]
-    fn any_translucent_counts_visible_panes_only() {
-        let mut t = SplitTree::new(1);
-        t.split(1, Orientation::Horizontal, 2);
-        let glass = |id: PaneId| id == 2;
-        assert!(any_translucent(&t.layout(AREA), glass));
-        assert!(!any_translucent(&t.layout(AREA), |_| false));
-        // Pane 1 maximized: the translucent pane 2 is hidden.
-        t.toggle_maximize(1);
-        assert!(!any_translucent(&t.layout(AREA), glass));
-        t.toggle_maximize(1);
-        t.toggle_maximize(2);
-        assert!(any_translucent(&t.layout(AREA), glass));
     }
 
     #[test]
@@ -648,18 +626,19 @@ mod tests {
         border.sort_by_key(|r| (r.x, r.y, r.w, r.h));
         assert_eq!(
             border,
+            // Edges that don't overlap: the sides run between the top and bottom.
             vec![
-                Rect {
-                    x: 101,
-                    y: 0,
-                    w: 2,
-                    h: 101
-                },
                 Rect {
                     x: 101,
                     y: 0,
                     w: 100,
                     h: 2
+                },
+                Rect {
+                    x: 101,
+                    y: 2,
+                    w: 2,
+                    h: 97
                 },
                 Rect {
                     x: 101,
@@ -669,9 +648,9 @@ mod tests {
                 },
                 Rect {
                     x: 199,
-                    y: 0,
+                    y: 2,
                     w: 2,
-                    h: 101
+                    h: 97
                 },
             ]
         );
@@ -779,7 +758,7 @@ mod tests {
             w: 100,
             h: 28,
         };
-        let p = paint_link_label(r, "https://a.b", &bm, 1);
+        let p = paint_label_box(r, "https://a.b", &bm, 1);
         assert_eq!(with(&p.under, theme::OVERLAY_BORDER), vec![r]);
         assert_eq!(with(&p.under, theme::OVERLAY_BG), vec![r.inset(1)]);
         let l = &p.labels[0];
@@ -788,7 +767,7 @@ mod tests {
             ("https://a.b", theme::to_rgb(theme::TEXT), 16, 26)
         );
         // 11 columns of text room: cut with an ellipsis.
-        let p = paint_link_label(r, "https://example.com/long", &bm, 1);
+        let p = paint_label_box(r, "https://example.com/long", &bm, 1);
         assert_eq!(p.labels[0].text, "https://ex…");
     }
 

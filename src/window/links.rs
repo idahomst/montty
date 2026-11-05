@@ -4,11 +4,11 @@
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
 
-use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::search::RegexSearch;
 use winit::window::CursorIcon;
 
 use super::Window;
+use super::mouse::grid_geom;
 use super::mouse::{divider_at, resize_icon};
 use crate::layout::{Orientation, PaneId, Rect};
 use crate::term::links::{Link, URL_REGEX, link_at};
@@ -31,12 +31,6 @@ impl LinkState {
     }
 }
 
-/// Links are hovered only with Ctrl held and no drag (a divider's or a selection's) on:
-/// a hand while dragging would promise a click that isn't coming.
-fn hover_wanted(ctrl: bool, dragging: bool) -> bool {
-    ctrl && !dragging
-}
-
 impl Window {
     /// The link under the pointer, when it is over a pane and no modal is open.
     fn link_under_pointer(&mut self) -> Option<(PaneId, Link)> {
@@ -45,24 +39,37 @@ impl Window {
         }
         let (x, y) = self.mouse.pos();
         let (id, rect) = self.pane_at(x, y)?;
-        let (point, _, _) = self.pane_point(id, rect, false)?;
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let term = self.panes.get(&id)?.term.lock();
+        let g = grid_geom(&font, rect, &*term);
         // The edge cell stands in for the padding and leftover strip: not a hit.
-        if !in_grid(content, cw, ch, term.columns(), term.screen_lines(), x, y) {
+        if !g.contains(x, y) {
             return None;
         }
+        let (point, _) = g.point_at(term.grid().display_offset(), x, y);
         let link = link_at(&term, &mut self.links.regex, point)?;
         Some((id, link))
+    }
+
+    /// The pointer shape over the panes (see `pointer_icon`).
+    pub(super) fn set_pane_cursor(&mut self) {
+        let link = self.links.hover.is_some();
+        let divider = if link {
+            None
+        } else {
+            let (x, y) = self.mouse.pos();
+            let dividers = self.tabs.active().tree.dividers(self.area());
+            divider_at(&dividers, x, y).map(|d| d.orientation)
+        };
+        self.set_cursor_icon(pointer_icon(link, divider));
     }
 
     /// Recompute the hovered link: on pointer motion and when the modifiers change.
     /// Nothing is searched unless Ctrl is held.
     pub(super) fn update_link_hover(&mut self) {
-        let dragging = self.mouse.dragging();
-        let hover = if hover_wanted(self.modifiers.control_key(), dragging) {
+        // Not during a drag (a divider's or a selection's): a hand would promise a click
+        // that isn't coming.
+        let hover = if self.modifiers.control_key() && !self.mouse.dragging() {
             self.link_under_pointer()
         } else {
             None
@@ -70,14 +77,8 @@ impl Window {
         let changed = hover != self.links.hover;
         let had = self.links.hover.is_some();
         self.links.hover = hover;
-        if self.links.hover.is_some() {
-            self.set_cursor_icon(CursorIcon::Pointer);
-        } else if had {
-            let (x, y) = self.mouse.pos();
-            let area = self.area();
-            let divider =
-                divider_at(&self.tabs.active().tree.dividers(area), x, y).map(|d| d.orientation);
-            self.set_cursor_icon(pointer_icon(false, divider));
+        if self.links.hover.is_some() || had {
+            self.set_pane_cursor();
         }
         if changed {
             self.schedule();
@@ -132,17 +133,33 @@ pub(super) fn label_rect(
     text_cols: usize,
     bm: &BarMetrics,
 ) -> Option<Rect> {
+    label_box(first.x, last.y + last.h, first.y, pane, text_cols, bm)
+}
+
+/// A one-row label box for `text_cols` columns inside `within`, at most as wide as it:
+/// its top at `below`, or its bottom at `above` when it wouldn't fit below; its left edge
+/// at `left`, shifted to stay inside. None when `within` can't hold one row plus padding.
+pub(super) fn label_box(
+    left: i32,
+    below: i32,
+    above: i32,
+    within: Rect,
+    text_cols: usize,
+    bm: &BarMetrics,
+) -> Option<Rect> {
     let h = bm.cell_h + 2 * bm.pad;
-    if text_cols == 0 || pane.w < bm.cell_w + 2 * bm.pad || pane.h < h {
+    if text_cols == 0 || within.w < bm.cell_w + 2 * bm.pad || within.h < h {
         return None;
     }
-    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(pane.w);
-    let mut y = last.y + last.h;
-    if y + h > pane.y + pane.h {
-        y = (first.y - h).max(pane.y);
-    }
-    let x = first.x.min(pane.x + pane.w - w).max(pane.x);
-    Some(Rect { x, y, w, h })
+    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(within.w);
+    let (right, bottom) = (within.x + within.w, within.y + within.h);
+    let y = if below + h > bottom { above - h } else { below };
+    Some(Rect {
+        x: left.min(right - w).max(within.x),
+        y: y.clamp(within.y, bottom - h),
+        w,
+        h,
+    })
 }
 
 /// The pointer shape outside the bar and modals: the hand over a hovered link, else
@@ -153,13 +170,6 @@ pub(super) fn pointer_icon(link: bool, divider: Option<Orientation>) -> CursorIc
     } else {
         divider.map_or(CursorIcon::Default, resize_icon)
     }
-}
-
-/// Whether (x, y) lies on the cells of a `cols` x `lines` grid at `content`.
-fn in_grid(content: Rect, cw: u32, ch: u32, cols: usize, lines: usize, x: i32, y: i32) -> bool {
-    let (dx, dy) = (i64::from(x - content.x), i64::from(y - content.y));
-    (0..cols as i64 * i64::from(cw)).contains(&dx)
-        && (0..lines as i64 * i64::from(ch)).contains(&dy)
 }
 
 /// Hand `arg` (a URI or a path) to the desktop's opener, detached: no stdio, reaped on a
@@ -187,14 +197,6 @@ mod tests {
     use alacritty_terminal::index::{Column, Line, Point};
 
     #[test]
-    fn no_link_hover_during_a_drag() {
-        assert!(hover_wanted(true, false));
-        assert!(!hover_wanted(true, true));
-        assert!(!hover_wanted(false, false));
-        assert!(!hover_wanted(false, true));
-    }
-
-    #[test]
     fn hand_over_a_link_else_divider_else_default() {
         assert_eq!(pointer_icon(true, None), CursorIcon::Pointer);
         assert_eq!(
@@ -206,15 +208,6 @@ mod tests {
             pointer_icon(false, Some(Orientation::Vertical)),
             resize_icon(Orientation::Vertical)
         );
-    }
-
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
     }
 
     fn cell(x: i32, y: i32) -> Rect {
@@ -230,7 +223,7 @@ mod tests {
 
     #[test]
     fn label_sits_below_the_link() {
-        let r = label_rect(cell(120, 70), cell(150, 88), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(120, 70), cell(150, 88), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -245,39 +238,53 @@ mod tests {
     #[test]
     fn label_flips_above_at_the_pane_bottom() {
         // The row below would end at 250 + 10: past the pane's bottom (250).
-        let r = label_rect(cell(120, 214), cell(120, 232), PANE, 10, &bm()).unwrap();
+        let r = label_rect(
+            cell(120, 214),
+            cell(120, 232),
+            PANE,
+            10,
+            &BarMetrics::test(),
+        )
+        .unwrap();
         assert_eq!((r.y, r.y + r.h), (214 - 28, 214));
         // Fits exactly: stays below.
-        let r = label_rect(cell(120, 186), cell(120, 204), PANE, 10, &bm()).unwrap();
+        let r = label_rect(
+            cell(120, 186),
+            cell(120, 204),
+            PANE,
+            10,
+            &BarMetrics::test(),
+        )
+        .unwrap();
         assert_eq!(r.y, 222);
         assert_eq!(r.y + r.h, 250);
     }
 
     #[test]
     fn label_is_clamped_to_the_pane_edge() {
-        let r = label_rect(cell(380, 70), cell(380, 70), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(380, 70), cell(380, 70), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!((r.x, r.w), (400 - 92, 92));
         // Left of the pane: pulled in too.
-        let r = label_rect(cell(90, 70), cell(90, 70), PANE, 10, &bm()).unwrap();
+        let r = label_rect(cell(90, 70), cell(90, 70), PANE, 10, &BarMetrics::test()).unwrap();
         assert_eq!(r.x, 100);
     }
 
     #[test]
     fn label_is_at_most_the_pane_wide() {
-        let r = label_rect(cell(200, 70), cell(200, 70), PANE, 500, &bm()).unwrap();
+        let r = label_rect(cell(200, 70), cell(200, 70), PANE, 500, &BarMetrics::test()).unwrap();
         assert_eq!((r.x, r.w), (100, 300));
     }
 
     #[test]
     fn no_label_in_a_pane_too_small() {
         let small = |w, h| Rect { w, h, ..PANE };
-        let f = |p| label_rect(cell(100, 50), cell(100, 50), p, 5, &bm());
+        let f = |p| label_rect(cell(100, 50), cell(100, 50), p, 5, &BarMetrics::test());
         assert_eq!(f(small(19, 200)), None);
         assert!(f(small(20, 200)).is_some());
         assert_eq!(f(small(300, 27)), None);
         assert!(f(small(300, 28)).is_some());
         assert_eq!(
-            label_rect(cell(100, 50), cell(100, 50), PANE, 0, &bm()),
+            label_rect(cell(100, 50), cell(100, 50), PANE, 0, &BarMetrics::test()),
             None
         );
     }
@@ -308,22 +315,5 @@ mod tests {
             label_text(&link("https://a\x1b.b", "x")).as_deref(),
             Some("https://a.b")
         );
-    }
-
-    #[test]
-    fn padding_and_leftover_strip_are_not_on_a_cell() {
-        let content = Rect {
-            x: 4,
-            y: 34,
-            w: 100,
-            h: 100,
-        };
-        // 5 cols x 2 lines of 9x18 cells: x 4..49, y 34..70.
-        assert!(in_grid(content, 9, 18, 5, 2, 4, 34));
-        assert!(in_grid(content, 9, 18, 5, 2, 48, 69));
-        assert!(!in_grid(content, 9, 18, 5, 2, 3, 40));
-        assert!(!in_grid(content, 9, 18, 5, 2, 49, 40));
-        assert!(!in_grid(content, 9, 18, 5, 2, 10, 70));
-        assert!(!in_grid(content, 9, 18, 5, 2, 10, 33));
     }
 }

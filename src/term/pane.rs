@@ -6,7 +6,6 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -17,41 +16,9 @@ use alacritty_terminal::term::{Config, Term};
 use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::CursorStyle;
 
-use winit::window::WindowId;
-
 use super::PaneId;
-use super::osc_scan::Signal;
 use super::pty_tap::TapPty;
-use crate::render::image::Rgba8;
-
-pub enum UserEvent {
-    Term(PaneId, Event),
-    /// A status or notification sequence the PTY tap found in the pane's output.
-    Signal(PaneId, Signal),
-    /// A file in the config dir changed (sent from the watcher's thread), for the window
-    /// whose watcher saw it.
-    ConfigChanged(WindowId),
-    /// A background image finished loading (sent from its decoding thread) for a window:
-    /// the image's path as its profile names it, the request id, and the image, downscaled, or why it
-    /// failed.
-    ImageLoaded(WindowId, PathBuf, u64, Result<Arc<Rgba8>, String>),
-}
-
-pub trait EventSink: Send + Sync + 'static {
-    fn send(&self, ev: UserEvent);
-}
-
-impl EventSink for winit::event_loop::EventLoopProxy<UserEvent> {
-    fn send(&self, ev: UserEvent) {
-        let _ = self.send_event(ev);
-    }
-}
-
-impl EventSink for Sender<UserEvent> {
-    fn send(&self, ev: UserEvent) {
-        let _ = Sender::send(self, ev);
-    }
-}
+use crate::events::{EventSink, UserEvent};
 
 #[derive(Clone)]
 pub struct EventProxy {
@@ -164,7 +131,16 @@ impl Pane {
             .map(|(k, v)| (k.to_string(), v))
             .collect(),
         };
-        let pty = tty::new(&pty_opts, size, id)?;
+        let pty = {
+            // On macOS, PTYs opened from several threads at once fail at random (openpty
+            // returns a bogus error; seen in tests/pane.rs). The app spawns panes on the UI
+            // thread only, so the lock is free there.
+            #[cfg(target_os = "macos")]
+            let _one = OPENPTY
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            tty::new(&pty_opts, size, id)?
+        };
         let master = pty.file().try_clone()?;
         let shell_pid = pty.child().id();
 
@@ -230,6 +206,12 @@ impl Pane {
         self.runs_command
     }
 
+    /// Whether closing the pane would stop something running: its explicit command (it
+    /// lives as long as the pane), or a foreground job. The syscall is skipped for a command.
+    pub fn is_running(&self) -> bool {
+        self.runs_command() || self.has_foreground_child()
+    }
+
     /// The explicit command this pane was started with (see `set_explicit_command`).
     pub fn explicit_command(&self) -> Option<&[String]> {
         self.explicit_command.as_deref()
@@ -252,21 +234,61 @@ impl Pane {
     }
 
     /// The shell's (or command's) process id.
+    #[cfg(test)]
     pub fn shell_pid(&self) -> u32 {
         self.shell_pid
     }
 
-    /// The shell's working directory, read from `/proc` when asked (never polled). `None`
-    /// when the link can't be read or isn't a directory: a deleted one reads as
+    /// The shell's working directory, read when asked (never polled). `None` when it
+    /// can't be read or isn't a directory: on Linux a deleted one reads as
     /// `"<path> (deleted)"`.
     pub fn cwd(&self) -> Option<PathBuf> {
-        let dir = std::fs::read_link(format!("/proc/{}/cwd", self.shell_pid)).ok()?;
+        let dir = process_cwd(self.shell_pid)?;
         dir.is_dir().then_some(dir)
     }
 
     pub fn scroll(&self, s: Scroll) {
         self.term.lock().scroll_display(s);
     }
+}
+
+#[cfg(target_os = "macos")]
+static OPENPTY: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(not(target_os = "macos"))]
+fn process_cwd(pid: u32) -> Option<PathBuf> {
+    std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+}
+
+/// macOS has no `/proc`: libproc's vnode path info carries the cwd.
+#[cfg(target_os = "macos")]
+fn process_cwd(pid: u32) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut info = std::mem::MaybeUninit::<libc::proc_vnodepathinfo>::zeroed();
+    let size = std::mem::size_of::<libc::proc_vnodepathinfo>() as libc::c_int;
+    // SAFETY: `info` is a writable buffer of `size` bytes, and all-zero bytes are a valid
+    // `proc_vnodepathinfo` (plain integers and arrays), so it is initialized either way.
+    let (n, info) = unsafe {
+        let n = libc::proc_pidinfo(
+            pid as libc::c_int,
+            libc::PROC_PIDVNODEPATHINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        );
+        (n, info.assume_init())
+    };
+    if n != size {
+        return None;
+    }
+    // A NUL-terminated C string in a fixed buffer (MAXPATHLEN bytes, as 32 rows of 32).
+    let raw = info.pvi_cdir.vip_path.as_flattened();
+    let bytes: Vec<u8> = raw
+        .iter()
+        .take_while(|&&c| c != 0)
+        .map(|&c| c as u8)
+        .collect();
+    (!bytes.is_empty()).then(|| PathBuf::from(std::ffi::OsStr::from_bytes(&bytes)))
 }
 
 impl Drop for Pane {

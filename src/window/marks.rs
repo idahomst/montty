@@ -3,7 +3,8 @@
 
 use super::Window;
 use super::attention::{Dot, Level};
-use super::draw::paint_link_label;
+use super::draw::paint_label_box;
+use super::links::label_box;
 use crate::layout::{PaneId, Rect};
 use crate::render::RectInstance;
 use crate::term::status::display_text;
@@ -71,21 +72,14 @@ pub(super) fn dot_label_rect(
     win: (i32, i32),
     bm: &BarMetrics,
 ) -> Option<Rect> {
-    let h = bm.cell_h + 2 * bm.pad;
-    if text_cols == 0 || win.1 < h || win.0 < bm.cell_w + 2 * bm.pad {
-        return None;
-    }
-    let w = (text_cols as i32 * bm.cell_w + 2 * bm.pad).min(win.0);
-    let mut y = dot.y + dot.h + LABEL_GAP;
-    if y + h > win.1 {
-        y = dot.y - LABEL_GAP - h;
-    }
-    Some(Rect {
-        x: dot.x.min(win.0 - w).max(0),
-        y: y.clamp(0, win.1 - h),
-        w,
-        h,
-    })
+    let window = Rect {
+        x: 0,
+        y: 0,
+        w: win.0,
+        h: win.1,
+    };
+    let (below, above) = (dot.y + dot.h + LABEL_GAP, dot.y - LABEL_GAP);
+    label_box(dot.x, below, above, window, text_cols, bm)
 }
 
 fn grown(r: Rect) -> Rect {
@@ -115,7 +109,7 @@ impl Window {
     /// Per tab (by index) its most urgent dot's level.
     pub(super) fn tab_marks(&self) -> Vec<Option<Level>> {
         if !self.store.global().attention_marks {
-            return vec![None; self.tabs.iter().count()];
+            return vec![None; self.tabs.len()];
         }
         let looking = self.looking_at();
         self.tabs
@@ -129,7 +123,7 @@ impl Window {
     }
 
     fn tab_dot_label(&self, index: usize) -> Option<Dot> {
-        let tab = self.tabs.iter().nth(index)?;
+        let tab = self.tabs.get(index)?;
         self.attention.tab_dot(&tab.tree.panes(), self.looking_at())
     }
 
@@ -156,9 +150,9 @@ impl Window {
             return None;
         }
         let (x, y) = self.mouse.pos();
-        let bar = self.bar();
-        if y < bar.height {
-            return bar.tabs.iter().find_map(|t| {
+        // The bar's layout is built only over the bar: this runs on every pointer move.
+        if y < self.bar_metrics().height {
+            return self.bar().tabs.iter().find_map(|t| {
                 let r = t.dot_rect.filter(|r| grown(*r).contains(x, y))?;
                 Some((r, self.tab_dot_label(t.index)?.label))
             });
@@ -205,7 +199,7 @@ impl Window {
         let text = display_text(&text);
         let bm = self.bar_metrics();
         if let Some(rect) = dot_label_rect(dot, display_width(&text), self.size_px(), &bm) {
-            let p = paint_link_label(rect, &text, &bm, self.chrome_stroke());
+            let p = paint_label_box(rect, &text, &bm, self.chrome_stroke());
             self.draw_paint(&p);
         }
     }
@@ -214,15 +208,6 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
 
     const PANE: Rect = Rect {
         x: 100,
@@ -233,7 +218,7 @@ mod tests {
 
     #[test]
     fn pane_dot_sits_in_the_top_right_corner() {
-        let r = pane_dot_rect(PANE, &bm()).unwrap();
+        let r = pane_dot_rect(PANE, &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -243,7 +228,7 @@ mod tests {
                 h: 8
             }
         );
-        assert!(pane_dot_rect(Rect { w: 10, ..PANE }, &bm()).is_none());
+        assert!(pane_dot_rect(Rect { w: 10, ..PANE }, &BarMetrics::test()).is_none());
     }
 
     #[test]
@@ -254,7 +239,7 @@ mod tests {
             w: 96,
             h: 22,
         };
-        let r = pane_dot_at(PANE, Some(bg), &bm()).unwrap();
+        let r = pane_dot_at(PANE, Some(bg), &BarMetrics::test()).unwrap();
         assert_eq!(
             r,
             Rect {
@@ -264,9 +249,12 @@ mod tests {
                 h: 8
             }
         );
-        assert_eq!(pane_dot_at(PANE, None, &bm()), pane_dot_rect(PANE, &bm()));
+        assert_eq!(
+            pane_dot_at(PANE, None, &BarMetrics::test()),
+            pane_dot_rect(PANE, &BarMetrics::test())
+        );
         let tight = Rect { x: 102, ..bg };
-        assert!(pane_dot_at(PANE, Some(tight), &bm()).is_none());
+        assert!(pane_dot_at(PANE, Some(tight), &BarMetrics::test()).is_none());
     }
 
     #[test]
@@ -277,14 +265,14 @@ mod tests {
             w: 8,
             h: 8,
         };
-        let below = dot_label_rect(dot, 10, (400, 300), &bm()).unwrap();
+        let below = dot_label_rect(dot, 10, (400, 300), &BarMetrics::test()).unwrap();
         assert_eq!(below.y, 64 + LABEL_GAP);
         assert_eq!(below.x + below.w, 400, "shifted left to fit");
         let low = Rect { y: 290, ..dot };
-        let above = dot_label_rect(low, 10, (400, 300), &bm()).unwrap();
+        let above = dot_label_rect(low, 10, (400, 300), &BarMetrics::test()).unwrap();
         assert_eq!(above.y + above.h + LABEL_GAP, 290);
-        assert!(dot_label_rect(dot, 0, (400, 300), &bm()).is_none());
-        let tiny = dot_label_rect(dot, 100, (60, 300), &bm()).unwrap();
+        assert!(dot_label_rect(dot, 0, (400, 300), &BarMetrics::test()).is_none());
+        let tiny = dot_label_rect(dot, 100, (60, 300), &BarMetrics::test()).unwrap();
         assert_eq!((tiny.x, tiny.w), (0, 60));
     }
 }

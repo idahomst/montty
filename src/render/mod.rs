@@ -14,8 +14,8 @@ use crate::layout::Rect;
 use crate::term::colors::Rgb;
 use crate::term::snapshot::Snapshot;
 use atlas::{AtlasTexture, GlyphAtlas};
-use cells::{CellInstance, CellPipeline, CellUniforms, CursorStyle};
-use image::{ImagePipeline, ImageTexture, Rgba8};
+use cells::{CellInstance, CellPipeline, CellUniforms, CursorStyle, PaneGeom, PaneStyle};
+use image::{ImagePipeline, ImageQuad, ImageTexture, Rgba8};
 pub use rects::RectInstance;
 use rects::RectPipeline;
 use shapes::ShapePipeline;
@@ -25,6 +25,19 @@ pub use shapes::{Shape, ShapeInstance};
 pub struct GlTexture<'a> {
     pub gl: &'a glow::Context,
     pub tex: glow::Texture,
+}
+
+/// Glyph lookup through the atlas, uploading missing glyphs to its texture.
+struct AtlasLookup<'a> {
+    atlas: &'a mut GlyphAtlas,
+    tex: GlTexture<'a>,
+    fonts: &'a mut FontSet,
+}
+
+impl AtlasLookup<'_> {
+    fn get(&mut self, ch: char, style: Style) -> Option<atlas::AtlasGlyph> {
+        self.atlas.get(ch, style, self.fonts, &mut self.tex)
+    }
 }
 
 /// Allocate (or reallocate) `tex` as an empty `size` x `size` RGBA texture.
@@ -76,6 +89,30 @@ impl AtlasTexture for GlTexture<'_> {
             );
         }
     }
+}
+
+/// One pane to draw.
+#[derive(Clone, Copy)]
+pub struct PaneDraw<'a> {
+    /// The pane's rect: nothing is drawn outside it, so a cell larger than a tiny pane
+    /// cannot paint over its neighbours.
+    pub clip: Rect,
+    /// Where the cell grid starts (the pane's rect inside its padding).
+    pub content: Rect,
+    pub metrics: &'a Metrics,
+    pub focused: bool,
+    /// Bg alpha of default-bg cells (see `cells::PaneStyle`).
+    pub default_bg_alpha: u8,
+}
+
+/// One row of text with its top-left cell at (`x`, `y`), scissored to `clip`.
+#[derive(Clone, Copy)]
+pub struct TextRun<'a> {
+    pub x: i32,
+    pub y: i32,
+    pub text: &'a str,
+    pub fg: Rgb,
+    pub clip: Rect,
 }
 
 /// The atlas never grows past this side, whatever the GL allows.
@@ -167,13 +204,8 @@ impl Renderer {
             gl.viewport(0, 0, self.width as i32, self.height as i32);
             gl.disable(glow::DEPTH_TEST);
             gl.enable(glow::BLEND);
-            // Sources are straight (non-premultiplied) alpha. The framebuffer holds
-            // premultiplied alpha, which is what X11 and Wayland compositors expect:
-            //   rgb = src.rgb·src.a + dst.rgb·(1 − src.a),  a = src.a + dst.a·(1 − src.a)
-            // is exactly premultiplied "over" with the source premultiplied (src.rgb·src.a,
-            // src.a). A transparent (0,0,0,0) or opaque clear is valid premultiplied, and
-            // "over" keeps every pixel valid (rgb ≤ a), so translucent panes, the dim, the
-            // overlay and glyph coverage all composite correctly. Over an opaque dst, a stays 1.
+            // Straight-alpha sources, premultiplied framebuffer (what X11 and Wayland
+            // compositors expect): this is premultiplied "over", which keeps rgb ≤ a.
             gl.blend_func_separate(
                 glow::SRC_ALPHA,
                 glow::ONE_MINUS_SRC_ALPHA,
@@ -185,54 +217,59 @@ impl Renderer {
         }
     }
 
-    /// Draw a pane's cells at `content`; nothing is drawn outside `clip` (the pane's
-    /// rect), so a cell larger than a tiny pane cannot paint over its neighbours.
-    /// Default-bg cells get bg alpha `default_bg_alpha` (see `cells::build_instances`).
-    // Per-pane inputs; bundling them would only rename the argument list.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_pane(
+    /// Run `build` (which fills the cell and rect buffers, looking glyphs up through the
+    /// atlas) until no atlas clear or growth happened mid-build: that makes the build's
+    /// earlier glyphs stale. Up to three builds (a first fill clears, a second grows).
+    /// Draws already issued are safe: GL runs a texture upload or reallocation after them.
+    fn build_with_atlas(
         &mut self,
-        clip: Rect,
-        content: Rect,
-        snap: &Snapshot,
         fonts: &mut FontSet,
-        m: &Metrics,
-        focused: bool,
-        default_bg_alpha: u8,
+        mut build: impl FnMut(&mut AtlasLookup, &mut Vec<CellInstance>, &mut Vec<RectInstance>),
     ) {
-        // If the atlas clears or grows mid-build, glyphs fetched earlier are stale: rebuild.
-        // Panes with other fonts share the atlas, and a later pane's build may clear it and
-        // upload over this pane's glyphs. That is fine: this pane's draw call is issued
-        // below with the UVs valid now, and GL runs a texture upload after the draws issued
-        // before it, so only glyphs fetched within one build can go stale. Growth
-        // reallocates the texture (tex_image_2d) but is ordered the same way: draws issued
-        // earlier carry their own atlas_size uniform and sample the old storage, and the
-        // size below is read after the rebuild loop, so this pane's draw sees the new one.
-        // Up to three builds: a first fill clears, a second fill in the same frame grows.
         for _ in 0..3 {
             let generation = self.atlas.generation();
-            let atlas = &mut self.atlas;
-            let mut tex = GlTexture {
-                gl: &self.gl,
-                tex: self.atlas_tex,
-            };
-            cells::build_instances(
-                snap,
-                content,
-                m,
-                CursorStyle {
-                    focused,
-                    color: self.cursor_color,
+            let mut lookup = AtlasLookup {
+                atlas: &mut self.atlas,
+                tex: GlTexture {
+                    gl: &self.gl,
+                    tex: self.atlas_tex,
                 },
-                |ch, style| atlas.get(ch, style, fonts, &mut tex),
-                &mut self.cell_buf,
-                &mut self.rect_buf,
-                default_bg_alpha,
-            );
+                fonts: &mut *fonts,
+            };
+            build(&mut lookup, &mut self.cell_buf, &mut self.rect_buf);
             if self.atlas.generation() == generation {
                 break;
             }
         }
+    }
+
+    /// Draw a pane's cells (see `PaneDraw`).
+    pub fn draw_pane(&mut self, pane: &PaneDraw, snap: &Snapshot, fonts: &mut FontSet) {
+        let PaneDraw {
+            clip,
+            content,
+            metrics: m,
+            focused,
+            default_bg_alpha,
+        } = *pane;
+        let geo = PaneGeom::new(content, m);
+        let style = PaneStyle {
+            cursor: CursorStyle {
+                focused,
+                color: self.cursor_color,
+            },
+            default_bg_alpha,
+        };
+        self.build_with_atlas(fonts, |atlas, cells, rects| {
+            cells::build_instances(
+                snap,
+                &geo,
+                style,
+                |ch, style| atlas.get(ch, style),
+                cells,
+                rects,
+            );
+        });
         let uniforms = CellUniforms {
             proj: &self.proj,
             origin: (content.x, content.y),
@@ -250,40 +287,19 @@ impl Renderer {
         unsafe { self.gl.disable(glow::SCISSOR_TEST) };
     }
 
-    /// Draw one row of text with its top-left cell at (`x`, `y`), over a transparent
-    /// background, scissored to `clip`.
-    // The 8-argument signature is the plan's interface.
-    #[allow(clippy::too_many_arguments)]
-    pub fn draw_text(
-        &mut self,
-        x: i32,
-        y: i32,
-        text: &str,
-        fg: Rgb,
-        clip: Rect,
-        fonts: &mut FontSet,
-        m: &Metrics,
-    ) {
+    /// Draw one row of text over a transparent background (see `TextRun`).
+    pub fn draw_text(&mut self, run: &TextRun, fonts: &mut FontSet, m: &Metrics) {
+        let TextRun {
+            x,
+            y,
+            text,
+            fg,
+            clip,
+        } = *run;
         let laid_out = crate::ui::text::layout_cells(text);
-        // If the atlas clears or grows mid-build, glyphs fetched earlier are stale: rebuild.
-        // Up to three builds: a first fill clears, a second fill in the same frame grows.
-        for _ in 0..3 {
-            let generation = self.atlas.generation();
-            let atlas = &mut self.atlas;
-            let mut tex = GlTexture {
-                gl: &self.gl,
-                tex: self.atlas_tex,
-            };
-            cells::text_instances(
-                &laid_out,
-                fg,
-                |ch| atlas.get(ch, Style::Regular, fonts, &mut tex),
-                &mut self.cell_buf,
-            );
-            if self.atlas.generation() == generation {
-                break;
-            }
-        }
+        self.build_with_atlas(fonts, |atlas, cells, _| {
+            cells::text_instances(&laid_out, fg, |ch| atlas.get(ch, Style::Regular), cells);
+        });
         let uniforms = CellUniforms {
             proj: &self.proj,
             origin: (x, y),
@@ -332,9 +348,13 @@ impl Renderer {
         alpha: f32,
         repeat: bool,
     ) {
-        let proj = self.proj;
-        self.images
-            .draw(&self.gl, &proj, t, dest, uv, alpha, repeat);
+        let quad = ImageQuad {
+            dest,
+            uv,
+            alpha,
+            repeat,
+        };
+        self.images.draw(&self.gl, &self.proj, t, &quad);
     }
 
     /// Drop every cached glyph (font or scale changed).

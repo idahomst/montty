@@ -11,11 +11,11 @@ use super::Window;
 use super::attention::Level;
 use super::draw::ChromeColors;
 use super::marks::{disc, level_color};
-use super::modal::{Modal, PromptPurpose, editing_label, resolve_rename};
+use super::modal::{Modal, PromptPurpose, editing_label};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
-use crate::layout::{PaneId, Rect};
-use crate::render::{RectInstance, ShapeInstance};
+use crate::layout::{PaneId, Rect, px_i32};
+use crate::render::{RectInstance, ShapeInstance, TextRun};
 use crate::term::colors::Rgb;
 use crate::ui::confirm::CloseTarget;
 use crate::ui::icons::{Icon, icon_shapes};
@@ -25,13 +25,12 @@ use crate::ui::{DOUBLE_CLICK, edge_px};
 
 /// The pane area: the window below a bar `bar_h` px tall.
 pub(super) fn pane_area(size: PhysicalSize<u32>, bar_h: i32) -> Rect {
-    let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
     let bar_h = bar_h.max(0);
     Rect {
         x: 0,
         y: bar_h,
-        w: clamp(size.width),
-        h: (clamp(size.height) - bar_h).max(0),
+        w: px_i32(size.width),
+        h: (px_i32(size.height) - bar_h).max(0),
     }
 }
 
@@ -159,8 +158,13 @@ pub(super) fn window_edge(
     if !resizable {
         return None;
     }
-    let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
-    resize_edge(clamp(size.width), clamp(size.height), pos.0, pos.1, border)
+    resize_edge(
+        px_i32(size.width),
+        px_i32(size.height),
+        pos.0,
+        pos.1,
+        border,
+    )
 }
 
 /// The hover state for a pointer hit: `Drag` (empty bar) draws no hover.
@@ -188,9 +192,19 @@ pub(super) struct BarPaint {
     pub shapes: Vec<ShapeInstance>,
 }
 
+impl BarPaint {
+    /// Add `other`'s layers to this one's, each drawn after what is there.
+    pub fn append(&mut self, other: BarPaint) {
+        self.under.extend(other.under);
+        self.labels.extend(other.labels);
+        self.icons.extend(other.icons);
+        self.shapes.extend(other.shapes);
+    }
+}
+
 /// The bar's rects and labels for a window `width` px wide. The active tab has
 /// the terminal background; a hovered inactive tab or button gets the hover bg
-/// (the Close button its own red); a hovered ✕ highlights only its box. The
+/// (the Close button its own red); a hovered tab ✕ highlights its box, not the tab. The
 /// active tab ends in an `underline` px line in `accent`, drawn after every
 /// background.
 #[allow(clippy::too_many_arguments)]
@@ -294,7 +308,6 @@ pub(super) fn icon_line_px(scale: f64) -> f32 {
 }
 
 impl Window {
-    /// Bar metrics for the current font and scale.
     pub(super) fn bar_metrics(&self) -> BarMetrics {
         BarMetrics::new(&self.ui_metrics, self.scale)
     }
@@ -302,6 +315,11 @@ impl Window {
     /// The bar's layout for the current width and tabs. A tab being renamed
     /// is sized for the field's text.
     pub(super) fn bar(&self) -> Bar {
+        self.bar_with(&self.tab_marks())
+    }
+
+    /// `bar()` for marks the caller already has.
+    fn bar_with(&self, marks: &[Option<Level>]) -> Bar {
         let mut labels = tab_labels(&self.tabs, |id| {
             self.panes.get(&id).and_then(|p| p.title.as_deref())
         });
@@ -309,12 +327,12 @@ impl Window {
             purpose: PromptPurpose::RenameTab { pane, .. },
             field,
         } = &self.modal
-            && let Some(label) = resolve_rename(&self.tabs, *pane).and_then(|i| labels.get_mut(i))
+            && let Some(label) = self.tabs.tab_of(*pane).and_then(|i| labels.get_mut(i))
         {
             *label = editing_label(field.text());
         }
-        let width = self.size.width.min(i32::MAX as u32) as i32;
-        let dots: Vec<bool> = self.tab_marks().iter().map(Option::is_some).collect();
+        let width = px_i32(self.size.width);
+        let dots: Vec<bool> = marks.iter().map(Option::is_some).collect();
         layout(
             width,
             &self.bar_metrics(),
@@ -326,11 +344,11 @@ impl Window {
 
     /// The label the bar shows for the tab holding `pane`, sanitised for a notification.
     pub(super) fn tab_title_of(&self, pane: PaneId) -> String {
-        let labels = tab_labels(&self.tabs, |id| {
-            self.panes.get(&id).and_then(|p| p.title.as_deref())
+        let label = (self.tabs.tab_of(pane).and_then(|i| self.tabs.get(i))).map(|t| {
+            let title = self.panes.get(&t.focused).and_then(|p| p.title.as_deref());
+            tab_label(t.title.as_deref(), title)
         });
-        let label = self.tabs.tab_of(pane).and_then(|i| labels.get(i));
-        crate::term::status::display_text(label.map_or("montty", String::as_str))
+        crate::term::status::display_text(label.as_deref().unwrap_or("montty"))
     }
 
     /// The OS window title follows the active tab's label.
@@ -346,8 +364,7 @@ impl Window {
 
     /// The window size in px, as i32.
     pub(super) fn size_px(&self) -> (i32, i32) {
-        let clamp = |v: u32| v.min(i32::MAX as u32) as i32;
-        (clamp(self.size.width), clamp(self.size.height))
+        (px_i32(self.size.width), px_i32(self.size.height))
     }
 
     /// Icon strokes and chrome borders: `max(1, round(scale))` px.
@@ -363,7 +380,8 @@ impl Window {
     /// Draw the bar. The hover is recomputed from the last pointer position
     /// first, so it is never stale after tabs or titles changed.
     pub(super) fn draw_bar(&mut self) {
-        let bar = self.bar();
+        let marks = self.tab_marks();
+        let bar = self.bar_with(&marks);
         self.hover = self.pointer_hover(&bar);
         let p = paint(
             &bar,
@@ -374,7 +392,7 @@ impl Window {
             self.icon_line(),
             underline_px(self.scale),
             ChromeColors::of(self.store.global()).border,
-            &self.tab_marks(),
+            &marks,
         );
         self.draw_paint(&p);
     }
@@ -385,23 +403,27 @@ impl Window {
         if let Some(fonts) = self.fonts.by_key(self.ui_font) {
             for l in &p.labels {
                 let m = &self.ui_metrics;
-                self.renderer
-                    .draw_text(l.x, l.y, &l.text, l.color, l.clip, fonts, m);
+                let run = TextRun {
+                    x: l.x,
+                    y: l.y,
+                    text: &l.text,
+                    fg: l.color,
+                    clip: l.clip,
+                };
+                self.renderer.draw_text(&run, fonts, m);
             }
         }
         self.renderer.draw_rects(&p.icons);
         self.renderer.draw_shapes(&p.shapes);
     }
 
-    /// Edge-resize zone width: `edge_px(scale)` (4 px at scale 1), the
-    /// same as the pane overlay's inset.
     fn edge_border(&self) -> i32 {
         edge_px(self.scale)
     }
 
     /// Whether the window can be resized from its edges now.
-    fn edges_resizable(&self, maximized: bool) -> bool {
-        !maximized && self.window.fullscreen().is_none()
+    fn edges_resizable(&self) -> bool {
+        !self.maximized && self.window.fullscreen().is_none()
     }
 
     /// The bar item the pointer is over (`None` in the edge zone, below the bar,
@@ -411,7 +433,7 @@ impl Window {
         if !self.mouse.inside() || pos.1 >= bar.height || self.modal_open() {
             return None;
         }
-        let resizable = self.edges_resizable(self.maximized);
+        let resizable = self.edges_resizable();
         if window_edge(self.size, pos, self.edge_border(), resizable).is_some() {
             return None;
         }
@@ -430,7 +452,7 @@ impl Window {
     /// the panes don't handle it.
     pub(super) fn bar_pointer_moved(&mut self) -> bool {
         let pos = self.mouse.pos();
-        let resizable = self.edges_resizable(self.maximized);
+        let resizable = self.edges_resizable();
         if let Some(dir) = window_edge(self.size, pos, self.edge_border(), resizable) {
             self.set_hover(None);
             self.set_cursor_icon(edge_icon(dir));
@@ -456,7 +478,7 @@ impl Window {
     pub(super) fn bar_press(&mut self, button: MouseButton) -> bool {
         let pos = self.mouse.pos();
         if button == MouseButton::Left {
-            let resizable = self.edges_resizable(self.maximized);
+            let resizable = self.edges_resizable();
             if let Some(dir) = window_edge(self.size, pos, self.edge_border(), resizable) {
                 self.mouse.clicks.clear();
                 if let Err(e) = self.window.drag_resize_window(dir) {
@@ -533,15 +555,6 @@ mod tests {
     use std::time::Duration;
 
     const ACCENT_T: [f32; 4] = [0.29, 0.56, 0.85, 1.0];
-
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
 
     fn rect_of(bar: &Bar, t: Target) -> Rect {
         bar.items.iter().find(|i| i.target == t).unwrap().rect
@@ -722,7 +735,13 @@ mod tests {
     }
 
     fn two_tabs() -> Bar {
-        layout(800, &bm(), &["bash".to_string(), "vim".to_string()], 0, &[])
+        layout(
+            800,
+            &BarMetrics::test(),
+            &["bash".to_string(), "vim".to_string()],
+            0,
+            &[],
+        )
     }
 
     #[test]
@@ -865,7 +884,7 @@ mod tests {
 
     #[test]
     fn single_tab_is_underlined() {
-        let bar = layout(800, &bm(), &["bash".to_string()], 0, &[]);
+        let bar = layout(800, &BarMetrics::test(), &["bash".to_string()], 0, &[]);
         let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &[]);
         assert_eq!(p.under.last().unwrap().color, ACCENT_T);
     }
@@ -873,7 +892,7 @@ mod tests {
     #[test]
     fn marked_tab_paints_a_coloured_disc() {
         let ls = ["bash".to_string(), "vim".to_string()];
-        let bar = layout(800, &bm(), &ls, 0, &[false, true]);
+        let bar = layout(800, &BarMetrics::test(), &ls, 0, &[false, true]);
         let marks = [None, Some(Level::Blocked)];
         let p = paint(&bar, 800, 0, None, false, 2.0, 3, ACCENT_T, &marks);
         let dot = bar.tabs[1].dot_rect.unwrap();

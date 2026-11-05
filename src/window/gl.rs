@@ -32,14 +32,18 @@ fn pick(configs: Box<dyn Iterator<Item = Config> + '_>) -> Option<Config> {
 }
 
 pub(super) fn create(el: &ActiveEventLoop, attrs: WindowAttributes) -> Result<GlWindow, String> {
-    // Same bootstrap as glutin_winit::DisplayBuilder (GLX, falling back to EGL), but done
-    // by hand so an empty config list is an error instead of a panic in the picker.
+    // Same bootstrap as glutin_winit::DisplayBuilder (GLX, falling back to EGL; CGL on
+    // macOS), but done by hand so an empty config list is an error instead of a panic in
+    // the picker.
     let handle = el
         .display_handle()
         .map_err(|e| format!("display handle: {e}"))?
         .as_raw();
+    #[cfg(not(target_os = "macos"))]
     let pref =
         DisplayApiPreference::GlxThenEgl(Box::new(winit::platform::x11::register_xlib_error_hook));
+    #[cfg(target_os = "macos")]
+    let pref = DisplayApiPreference::Cgl;
     let display = unsafe { Display::new(handle, pref) }
         .map_err(|e| format!("cannot open OpenGL display: {e}"))?;
     let template = ConfigTemplateBuilder::new()

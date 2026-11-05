@@ -30,7 +30,28 @@ pub struct CellInstance {
     /// Glyph bitmap placement: left, top (relative to pen position / baseline).
     pub offset: [i16; 2],
     pub flags: u8,
-    pub _pad: [u8; 3],
+    _pad: [u8; 3],
+}
+
+impl CellInstance {
+    /// The glyph part of an instance (uv, offset, flags); position and colors are left zero.
+    fn glyph(g: Option<AtlasGlyph>, mut flags: u8) -> CellInstance {
+        let (uv, offset) = match g {
+            Some(g) => {
+                if g.color {
+                    flags |= COLOR_GLYPH;
+                }
+                ([g.x, g.y, g.w, g.h], [g.left, g.top])
+            }
+            None => ([0; 4], [0; 2]),
+        };
+        CellInstance {
+            uv,
+            offset,
+            flags,
+            ..CellInstance::default()
+        }
+    }
 }
 
 /// How a pane's cursor is drawn.
@@ -42,24 +63,29 @@ pub struct CursorStyle {
     pub color: Rgb,
 }
 
+/// How a pane's cells are painted.
+#[derive(Clone, Copy, Debug)]
+pub struct PaneStyle {
+    pub cursor: CursorStyle,
+    /// Bg alpha of cells on the default background: 0 when the pane's translucent bg rect
+    /// (or its image) already painted it.
+    pub default_bg_alpha: u8,
+}
+
 /// Fill `out` with one instance per visible cell (wide spacers skipped, one extra
 /// instance per zero-width char) and `rects` with decorations and non-block cursors
-/// (drawn in `cursor_style.color`; a focused block cursor swaps the cell's fg/bg instead).
-/// Cells on the default background get bg alpha `default_bg_alpha` (0 when the pane's
-/// translucent bg rect already painted it); every other bg, and the block cursor's
-/// swapped cell, stays opaque.
-// The 8-argument signature is the plan's interface.
-#[allow(clippy::too_many_arguments)]
+/// (drawn in `style.cursor.color`; a focused block cursor swaps the cell's fg/bg instead).
+/// Cells on the default background get bg alpha `style.default_bg_alpha`; every other bg,
+/// and the block cursor's swapped cell, stays opaque.
 pub fn build_instances(
     snap: &Snapshot,
-    content: Rect,
-    m: &Metrics,
-    cursor_style: CursorStyle,
+    geo: &PaneGeom,
+    style: PaneStyle,
     glyph: impl FnMut(char, Style) -> Option<AtlasGlyph>,
     out: &mut Vec<CellInstance>,
     rects: &mut Vec<RectInstance>,
-    default_bg_alpha: u8,
 ) {
+    let (cursor_style, default_bg_alpha) = (style.cursor, style.default_bg_alpha);
     out.clear();
     rects.clear();
     let cols = snap.cols;
@@ -81,12 +107,6 @@ pub fn build_instances(
     let block = match cursor {
         Some((idx, CursorShape::Block)) if cursor_style.focused => Some(idx),
         _ => None,
-    };
-    let geo = Geo {
-        content,
-        cw: m.cell_width as i32,
-        ch: m.cell_height as i32,
-        baseline: m.baseline as i32,
     };
 
     for (idx, cell) in snap.cells.iter().enumerate() {
@@ -132,25 +152,12 @@ pub fn text_instances(
     out.clear();
     for &(col, ch, wide) in cells {
         let g = if ch == ' ' { None } else { glyph(ch) };
-        let mut flags = if wide { WIDE } else { 0 };
-        let (uv, offset) = match g {
-            Some(g) => {
-                if g.color {
-                    flags |= COLOR_GLYPH;
-                }
-                ([g.x, g.y, g.w, g.h], [g.left, g.top])
-            }
-            None => ([0; 4], [0; 2]),
-        };
         out.push(CellInstance {
             col,
             row: 0,
             bg: [0; 4],
             fg: rgba(fg),
-            uv,
-            offset,
-            flags,
-            _pad: [0; 3],
+            ..CellInstance::glyph(g, if wide { WIDE } else { 0 })
         });
     }
 }
@@ -184,40 +191,41 @@ fn instance(
     bg: [u8; 4],
     g: Option<AtlasGlyph>,
 ) -> CellInstance {
-    let mut flags = 0;
-    if cell.flags.contains(Flags::WIDE_CHAR) {
-        flags |= WIDE;
-    }
-    let (uv, offset) = match g {
-        Some(g) => {
-            if g.color {
-                flags |= COLOR_GLYPH;
-            }
-            ([g.x, g.y, g.w, g.h], [g.left, g.top])
-        }
-        None => ([0; 4], [0; 2]),
-    };
     CellInstance {
         col: (idx % cols) as u16,
         row: (idx / cols) as u16,
         bg,
         fg,
-        uv,
-        offset,
-        flags,
-        _pad: [0; 3],
+        ..CellInstance::glyph(
+            g,
+            if cell.flags.contains(Flags::WIDE_CHAR) {
+                WIDE
+            } else {
+                0
+            },
+        )
     }
 }
 
 /// Pixel geometry of one pane's cells.
-struct Geo {
+pub struct PaneGeom {
     content: Rect,
     cw: i32,
     ch: i32,
     baseline: i32,
 }
 
-impl Geo {
+impl PaneGeom {
+    /// Cells of metrics `m` laid out from the top-left of `content`.
+    pub fn new(content: Rect, m: &Metrics) -> PaneGeom {
+        PaneGeom {
+            content,
+            cw: m.cell_width as i32,
+            ch: m.cell_height as i32,
+            baseline: m.baseline as i32,
+        }
+    }
+
     /// Pixel rect of the cell (two cells wide for wide chars).
     fn cell_rect(&self, idx: usize, cols: usize, cell: &SnapCell) -> Rect {
         Rect {
@@ -467,11 +475,15 @@ mod tests {
 
     fn build(s: &Snapshot, focused: bool) -> (Vec<CellInstance>, Vec<RectInstance>) {
         let (mut out, mut rects) = (Vec::new(), Vec::new());
-        let style = CursorStyle {
-            focused,
-            color: CURSOR,
+        let style = PaneStyle {
+            cursor: CursorStyle {
+                focused,
+                color: CURSOR,
+            },
+            default_bg_alpha: 255,
         };
-        build_instances(s, CONTENT, &M, style, fake_glyph, &mut out, &mut rects, 255);
+        let geo = PaneGeom::new(CONTENT, &M);
+        build_instances(s, &geo, style, fake_glyph, &mut out, &mut rects);
         (out, rects)
     }
 
@@ -547,11 +559,15 @@ mod tests {
         // Cursor on the default-bg cell at col 2: its swapped (block) bg stays opaque.
         let s = snap(b"a\x1b[41mb\x1b[0m");
         let (mut out, mut rects) = (Vec::new(), Vec::new());
-        let style = CursorStyle {
-            focused: true,
-            color: CURSOR,
+        let style = PaneStyle {
+            cursor: CursorStyle {
+                focused: true,
+                color: CURSOR,
+            },
+            default_bg_alpha: 0,
         };
-        build_instances(&s, CONTENT, &M, style, fake_glyph, &mut out, &mut rects, 0);
+        let geo = PaneGeom::new(CONTENT, &M);
+        build_instances(&s, &geo, style, fake_glyph, &mut out, &mut rects);
         let p = tango_default();
         assert_eq!(at(&out, 0, 0)[0].bg, [p.bg.r, p.bg.g, p.bg.b, 0]);
         assert_eq!(at(&out, 1, 0)[0].bg, rgba(p.ansi[1]));

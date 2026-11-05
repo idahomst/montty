@@ -1,12 +1,14 @@
 //! Find bar state and layout (pure; the search itself is `window/find.rs`).
 
+use super::text::{has_control, sanitize};
 use super::textfield::{FieldOutcome, TextField};
 use super::topbar::BarMetrics;
 use crate::input::Mods;
 use crate::layout::Rect;
 use winit::keyboard::{Key, NamedKey};
 
-/// Escaped in the query so the search stays literal.
+/// Escaped in the query so the search stays literal. The same set `regex_syntax::escape`
+/// uses: `#&-~` are meta in `(?x)` mode and in class set operations.
 const META: &str = r"\.+*?()|[]{}^$#&-~";
 
 pub struct FindBar {
@@ -67,7 +69,7 @@ impl FindBar {
     /// only, control characters dropped. True when the field's text changed.
     pub fn paste(&mut self, text: &str) -> bool {
         let line = text.split(['\r', '\n']).next().unwrap_or("");
-        let line: String = line.chars().filter(|c| !c.is_control()).collect();
+        let line = sanitize(line);
         if line.is_empty() {
             return false;
         }
@@ -83,17 +85,19 @@ impl FindBar {
     /// Escape closes; with the text selected, an edit replaces all of it.
     pub fn key(&mut self, key: &Key, text: Option<&str>, mods: Mods) -> FindKey {
         let replaces = self.select_all && replaces_selection(key, text, mods);
-        let before = (self.field.text().to_string(), self.field.cursor());
+        // Replacing a selected query is an edit even when the key then does nothing.
+        let cleared = replaces && !self.field.text().is_empty();
         if replaces {
             self.field = TextField::new("");
         }
-        let out = self.field.key(key, text, mods);
-        match out {
+        let (edited, moved) = match self.field.key(key, text, mods) {
             FieldOutcome::Commit(_) if mods.shift => return FindKey::Prev,
             FieldOutcome::Commit(_) => return FindKey::Next,
             FieldOutcome::Cancel => return FindKey::Close,
-            FieldOutcome::Editing => {}
-        }
+            FieldOutcome::Edited => (true, false),
+            FieldOutcome::Moved => (cleared, true),
+            FieldOutcome::Unchanged => (cleared, false),
+        };
         let moves = matches!(
             key,
             Key::Named(NamedKey::ArrowLeft | NamedKey::ArrowRight | NamedKey::Home | NamedKey::End)
@@ -102,9 +106,9 @@ impl FindBar {
         if selection_dropped {
             self.select_all = false;
         }
-        if self.field.text() != before.0 {
+        if edited {
             FindKey::Edited
-        } else if selection_dropped || self.field.cursor() != before.1 {
+        } else if selection_dropped || moved {
             FindKey::Redraw
         } else {
             FindKey::Nothing
@@ -120,7 +124,7 @@ fn replaces_selection(key: &Key, text: Option<&str>, mods: Mods) -> bool {
     match key {
         Key::Named(NamedKey::Backspace | NamedKey::Delete) => true,
         Key::Named(NamedKey::Enter | NamedKey::Escape) => false,
-        _ => text.is_some_and(|t| !t.is_empty() && !t.chars().any(char::is_control)),
+        _ => text.is_some_and(|t| !t.is_empty() && !has_control(t)),
     }
 }
 
@@ -211,15 +215,6 @@ pub fn findbar_hit(l: &FindLayout, x: i32, y: i32) -> Option<FindTarget> {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn pane(w: i32) -> Rect {
         Rect {
             x: 100,
@@ -291,13 +286,13 @@ mod tests {
 
     #[test]
     fn layout_fits_small_pane() {
-        let l = findbar_layout(pane(200), &bm(), 4);
+        let l = findbar_layout(pane(200), &BarMetrics::test(), 4);
         assert!(l.rect.w <= 200 - 8, "{l:?}");
         assert!(l.field.w >= 0);
         assert_eq!((l.rect.h, l.rect.y), (28, 34));
         assert_eq!(l.rect.x + l.rect.w, 100 + 200 - 4);
         // Narrower than the four buttons: the field is empty, no button sticks out.
-        let l = findbar_layout(pane(100), &bm(), 4);
+        let l = findbar_layout(pane(100), &BarMetrics::test(), 4);
         assert!(l.field.w >= 0 && l.rect.w <= 92);
         for (r, _) in &l.buttons {
             assert!(r.x >= l.rect.x && r.x + r.w <= l.rect.x + l.rect.w);
@@ -307,7 +302,7 @@ mod tests {
     #[test]
     fn narrow_pane_drops_buttons_from_the_left() {
         // Bar 3 buttons wide (84 px): Prev goes, the field is empty.
-        let l = findbar_layout(pane(84 + 8), &bm(), 4);
+        let l = findbar_layout(pane(84 + 8), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(
             targets,
@@ -315,7 +310,7 @@ mod tests {
         );
         assert_eq!(l.field.w, 0);
         // One button wide: only Close.
-        let l = findbar_layout(pane(28 + 8), &bm(), 4);
+        let l = findbar_layout(pane(28 + 8), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(targets, [FindTarget::Close]);
         let (r, _) = l.buttons[0];
@@ -325,23 +320,23 @@ mod tests {
     #[test]
     fn layout_is_zero_size_when_the_pane_has_no_room() {
         // Too narrow (no width left after the insets) or too short.
-        assert_eq!(findbar_layout(pane(8), &bm(), 4).rect.w, 0);
+        assert_eq!(findbar_layout(pane(8), &BarMetrics::test(), 4).rect.w, 0);
         let short = Rect { h: 30, ..pane(800) };
-        let l = findbar_layout(short, &bm(), 4);
+        let l = findbar_layout(short, &BarMetrics::test(), 4);
         assert_eq!((l.rect.w, l.rect.h), (0, 0));
         assert!(l.buttons.is_empty());
     }
 
     #[test]
     fn layout_wide_pane_caps_the_width() {
-        let l = findbar_layout(pane(2000), &bm(), 4);
+        let l = findbar_layout(pane(2000), &BarMetrics::test(), 4);
         assert_eq!(l.rect.w, 40 * 8 + 4 * 28);
         assert_eq!(l.field.w, 40 * 8);
     }
 
     #[test]
     fn layout_buttons_in_order() {
-        let l = findbar_layout(pane(800), &bm(), 4);
+        let l = findbar_layout(pane(800), &BarMetrics::test(), 4);
         let targets: Vec<_> = l.buttons.iter().map(|b| b.1).collect();
         assert_eq!(
             targets,
@@ -364,7 +359,7 @@ mod tests {
 
     #[test]
     fn hit_buttons_then_field() {
-        let l = findbar_layout(pane(800), &bm(), 4);
+        let l = findbar_layout(pane(800), &BarMetrics::test(), 4);
         let c = |r: Rect| (r.x + 1, r.y + 1);
         for (r, t) in &l.buttons {
             let (x, y) = c(*r);

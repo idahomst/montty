@@ -6,6 +6,7 @@ use winit::keyboard::{Key, NamedKey};
 use super::text::display_width;
 use super::topbar::BarMetrics;
 use crate::layout::{PaneId, Rect};
+use crate::ui::{centered, modal_extent};
 
 pub const CLOSE_LABEL: &str = "Close";
 pub const CANCEL_LABEL: &str = "Cancel";
@@ -81,14 +82,8 @@ impl Confirm {
         let text_w = display_width(&self.message) as i32 * bm.cell_w;
         let want_w = text_w.max(2 * bw + bm.pad) + 2 * m;
         let want_h = bm.cell_h + bh + 3 * m;
-        let w = want_w.min(win_w * 9 / 10).max(0);
-        let h = want_h.min(win_h * 9 / 10).max(0);
-        Rect {
-            x: ((win_w - w) / 2).max(0),
-            y: ((win_h - h) / 2).max(0),
-            w,
-            h,
-        }
+        let (w, h) = (modal_extent(want_w, win_w), modal_extent(want_h, win_h));
+        centered(w, h, win_w, win_h)
     }
 
     /// (Close, Cancel): Close in the bottom-right corner (the default, as on
@@ -162,15 +157,6 @@ impl Confirm {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn confirm() -> Confirm {
         Confirm::new(CloseTarget::Pane(1), confirm_message(1))
     }
@@ -224,7 +210,7 @@ mod tests {
 
     #[test]
     fn confirm_centered_with_buttons_inside() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = confirm();
         let r = c.rect(800, 600, &bm);
         assert_eq!((r.x, r.y), ((800 - r.w) / 2, (600 - r.h) / 2));
@@ -247,7 +233,7 @@ mod tests {
 
     #[test]
     fn confirm_clicks() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = confirm();
         let r = c.rect(800, 600, &bm);
         let (close, cancel) = c.button_rects(800, 600, &bm);
@@ -261,7 +247,7 @@ mod tests {
 
     #[test]
     fn confirm_hover_reports_changes() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let mut c = confirm();
         let (close, cancel) = c.button_rects(800, 600, &bm);
         let (x, y) = center(close);
@@ -277,7 +263,7 @@ mod tests {
 
     #[test]
     fn confirm_never_negative() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let c = Confirm::new(CloseTarget::Window, confirm_message(3));
         for (w, h) in [(0, 0), (1, 1), (50, 20), (120, 400)] {
             let r = c.rect(w, h, &bm);

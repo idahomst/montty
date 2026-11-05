@@ -26,6 +26,7 @@ use alacritty_terminal::term::search::{Match, RegexIter, RegexSearch};
 
 use crate::layout::PaneId;
 use crate::term::links::line_search_left_capped;
+use crate::term::pane::EventProxy;
 use crate::ui::findbar::FindBar;
 
 pub struct FindState {
@@ -343,36 +344,26 @@ impl Window {
         }
     }
 
-    /// The next match, toward newer text.
     pub(super) fn find_next(&mut self) {
         self.find_step(Direction::Right);
     }
 
-    /// The previous match, toward older text.
     pub(super) fn find_prev(&mut self) {
         self.find_step(Direction::Left);
     }
 
     fn find_step(&mut self, dir: Direction) {
-        let Some(f) = self.find.as_mut() else {
-            return;
-        };
-        let id = f.pane;
-        if let Some(pane) = self.panes.get(&id) {
-            let mut term = pane.term.lock();
-            let before = term.grid().display_offset();
-            f.search(&mut term, dir);
-            let moved = term.grid().display_offset() != before;
-            drop(term);
-            if moved {
-                self.mark_scrolled(id);
-            }
-            self.schedule();
-        }
+        self.with_find_term(|f, term| f.search(term, dir));
     }
 
     /// The query or the case flag changed: search again from the bottom.
     fn find_requery(&mut self) {
+        self.with_find_term(|f, term| f.query_changed(term));
+    }
+
+    /// Run `search` on the find state and its pane's terminal, then redraw (and show the
+    /// scrollbar when it scrolled). Nothing runs when the bar is closed or its pane is gone.
+    fn with_find_term(&mut self, search: impl FnOnce(&mut FindState, &mut Term<EventProxy>)) {
         let Some(f) = self.find.as_mut() else {
             return;
         };
@@ -380,7 +371,7 @@ impl Window {
         if let Some(pane) = self.panes.get(&id) {
             let mut term = pane.term.lock();
             let before = term.grid().display_offset();
-            f.query_changed(&mut term);
+            search(f, &mut term);
             let moved = term.grid().display_offset() != before;
             drop(term);
             if moved {
@@ -473,15 +464,6 @@ mod tests {
     use alacritty_terminal::term::test::TermSize;
     use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
-
     fn pane() -> Rect {
         Rect {
             x: 0,
@@ -499,8 +481,8 @@ mod tests {
     }
 
     fn paint(b: &FindBar, w: i32) -> BarPaint {
-        let l = findbar_layout(Rect { w, ..pane() }, &bm(), 4);
-        paint_find(&l, b, &bm(), 1, 2.0)
+        let l = findbar_layout(Rect { w, ..pane() }, &BarMetrics::test(), 4);
+        paint_find(&l, b, &BarMetrics::test(), 1, 2.0)
     }
 
     fn fills(p: &BarPaint, color: [f32; 4]) -> usize {
@@ -657,8 +639,8 @@ mod tests {
 
     #[test]
     fn tiny_pane_paints_nothing() {
-        let l = findbar_layout(Rect { w: 6, ..pane() }, &bm(), 4);
-        let p = paint_find(&l, &bar("x"), &bm(), 1, 2.0);
+        let l = findbar_layout(Rect { w: 6, ..pane() }, &BarMetrics::test(), 4);
+        let p = paint_find(&l, &bar("x"), &BarMetrics::test(), 1, 2.0);
         assert!(p.under.is_empty() && p.labels.is_empty() && p.icons.is_empty());
         assert!(p.shapes.is_empty());
     }

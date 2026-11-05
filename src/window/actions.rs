@@ -15,7 +15,7 @@ use super::{
 use crate::clipboard::ClipKind;
 use crate::font::Metrics;
 use crate::input::bindings::Action;
-use crate::layout::{Direction, Orientation, PaneId, Rect, RemoveResult, SplitTree};
+use crate::layout::{Direction, Orientation, PaneId, Rect, RemoveResult, SplitTree, px_i32};
 use crate::term::pane::{Pane, next_pane_id};
 use crate::ui::confirm::CloseTarget;
 use crate::windows::AppRequest;
@@ -127,10 +127,7 @@ impl Window {
     /// spawn leaves the layout as it was.
     fn split(&mut self, o: Orientation, before: bool) {
         let id = next_pane_id();
-        let style = PaneStyle {
-            stem: self.pane_stem(self.tabs.active().focused).to_string(),
-            zoom_pt: 0.0,
-        };
+        let style = PaneStyle::new(self.pane_stem(self.tabs.active().focused));
         let cwd = self
             .panes
             .get(&self.tabs.active().focused)
@@ -302,10 +299,7 @@ impl Window {
             return;
         };
         for id in tab.tree.panes() {
-            self.attention.remove(id);
-            self.panes.remove(&id);
-            self.sizes.remove(&id);
-            self.pane_profiles.remove(&id);
+            self.forget_pane(id);
         }
         self.evict_fonts();
         if self.tabs.is_empty() {
@@ -471,7 +465,7 @@ pub(super) fn remove_pane(tabs: &mut Tabs, pane: PaneId, area: Rect) -> bool {
     let Some(i) = tabs.tab_of(pane) else {
         return false;
     };
-    let Some(tab) = tabs.iter_mut().nth(i) else {
+    let Some(tab) = tabs.get_mut(i) else {
         return false;
     };
     let was_focused = pane == tab.focused;
@@ -499,7 +493,7 @@ pub(super) fn resize_step(dir: Direction, m: &Metrics) -> i32 {
         Direction::Left | Direction::Right => m.cell_width,
         Direction::Up | Direction::Down => m.cell_height,
     };
-    px.min(i32::MAX as u32) as i32
+    px_i32(px)
 }
 
 #[cfg(test)]

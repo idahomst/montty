@@ -11,17 +11,16 @@ use winit::dpi::PhysicalPosition;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta};
 use winit::window::CursorIcon;
 
-use super::Window;
 use super::bar::ClickTracker;
-use super::links::pointer_icon;
 use super::pane_drag::{DragEnd, PaneDrag, drag_threshold};
 use super::selection::SelectState;
+use super::{PaneFont, Window};
 use crate::clipboard::ClipKind;
 use crate::input::Mods;
 use crate::input::bindings::Action;
 use crate::input::mouse::{MouseButtonCode, MouseEventKind, report, reporting};
 use crate::layout::{Divider, DividerId, Orientation, PaneId, Rect};
-use crate::term::grid_point::point_at;
+use crate::term::grid_point::GridGeom;
 use crate::ui::edge_px;
 use crate::ui::overlay::{Overlay, OverlayTarget, overlay_hit, overlay_layout, overlay_visible};
 
@@ -137,6 +136,27 @@ fn along(o: Orientation, (x, y): (i32, i32)) -> i32 {
     }
 }
 
+/// The grid of a pane at `rect` drawn with `font`, sized from its terminal's `grid`.
+pub(super) fn grid_geom(font: &PaneFont, rect: Rect, grid: &impl Dimensions) -> GridGeom {
+    GridGeom {
+        content: rect.inset(font.padding),
+        cell_w: font.metrics.cell_width,
+        cell_h: font.metrics.cell_height,
+        cols: grid.columns(),
+        lines: grid.screen_lines(),
+    }
+}
+
+/// The reportable buttons.
+fn button_code(button: MouseButton) -> Option<MouseButtonCode> {
+    match button {
+        MouseButton::Left => Some(MouseButtonCode::Left),
+        MouseButton::Middle => Some(MouseButtonCode::Middle),
+        MouseButton::Right => Some(MouseButtonCode::Right),
+        _ => None,
+    }
+}
+
 impl Window {
     pub(super) fn on_cursor_moved(&mut self, p: PhysicalPosition<f64>) {
         self.mouse.pos = (p.x.floor() as i32, p.y.floor() as i32);
@@ -176,11 +196,7 @@ impl Window {
         if self.modal_open() {
             self.modal_pointer_moved();
         } else if !self.bar_pointer_moved() {
-            let (x, y) = self.mouse.pos;
-            let divider =
-                divider_at(&self.tabs.active().tree.dividers(area), x, y).map(|d| d.orientation);
-            let hovered = self.links.hover.is_some();
-            self.set_cursor_icon(pointer_icon(hovered, divider));
+            self.set_pane_cursor();
         }
         self.refresh_overlay();
         self.update_mark_hover();
@@ -235,62 +251,53 @@ impl Window {
             }
             return;
         }
-        if state == ElementState::Pressed && self.modal_open() {
+        match state {
+            ElementState::Pressed => self.mouse_press(button),
+            ElementState::Released => self.mouse_release(button),
+        }
+    }
+
+    /// A press goes to the first of these that takes it, in order. The modal takes every
+    /// press; Ctrl+click on a link comes before mouse reporting, so it opens the link even
+    /// for a program that asked for mouse events. While a divider is dragged, a press of
+    /// another button skips straight to the panes.
+    fn mouse_press(&mut self, button: MouseButton) {
+        if self.modal_open() {
             self.modal_press(button);
             return;
         }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.toast_press() {
-            return;
-        }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.bar_press(button) {
-            return;
-        }
-        if state == ElementState::Pressed
-            && self.mouse.drag.is_none()
-            && self.find.is_some()
-            && self.find_press(button)
+        if self.mouse.drag.is_none()
+            && (self.toast_press()
+                || self.bar_press(button)
+                || (self.find.is_some() && self.find_press(button))
+                || self.overlay_press(button)
+                || (button == MouseButton::Left && self.link_press())
+                || self.report_press(button))
         {
             return;
         }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.overlay_press(button)
-        {
+        match button {
+            MouseButton::Middle => self.middle_press(),
+            MouseButton::Right => self.right_press(),
+            MouseButton::Left => self.left_press(),
+            _ => {}
+        }
+    }
+
+    fn mouse_release(&mut self, button: MouseButton) {
+        if self.report_release(button) || button != MouseButton::Left {
             return;
         }
-        // Ahead of mouse reporting: Ctrl+click opens a link even for a program that
-        // asked for mouse events. A Ctrl press off a link falls through unchanged.
-        if state == ElementState::Pressed
-            && button == MouseButton::Left
-            && self.mouse.drag.is_none()
-            && self.link_press()
-        {
-            return;
+        if self.mouse.drag.take().is_some() {
+            self.layout_changed();
         }
-        if state == ElementState::Released && self.report_release(button) {
-            return;
-        }
-        if state == ElementState::Pressed && self.mouse.drag.is_none() && self.report_press(button)
-        {
-            return;
-        }
-        if button == MouseButton::Middle && state == ElementState::Pressed {
-            self.middle_press();
-            return;
-        }
-        if button == MouseButton::Right && state == ElementState::Pressed {
-            self.right_press();
-            return;
-        }
-        if button != MouseButton::Left {
-            return;
-        }
-        if state == ElementState::Released {
-            if self.mouse.drag.take().is_some() {
-                self.layout_changed();
-            }
-            self.selection_release();
-            self.refresh_overlay();
-            return;
-        }
+        self.selection_release();
+        self.refresh_overlay();
+    }
+
+    /// A left press on a divider starts its drag (a double click equalizes it); in a pane
+    /// it starts a selection.
+    fn left_press(&mut self) {
         let area = self.area();
         let (x, y) = self.mouse.pos;
         if let Some(d) = divider_at(&self.tabs.active().tree.dividers(area), x, y) {
@@ -324,11 +331,8 @@ impl Window {
     /// focus the pane and report the press, so no selection or paste happens.
     /// A left press on a divider is left to the divider. True when consumed.
     fn report_press(&mut self, button: MouseButton) -> bool {
-        let code = match button {
-            MouseButton::Left => MouseButtonCode::Left,
-            MouseButton::Middle => MouseButtonCode::Middle,
-            MouseButton::Right => MouseButtonCode::Right,
-            _ => return false,
+        let Some(code) = button_code(button) else {
+            return false;
         };
         let (x, y) = self.mouse.pos;
         let Some((id, rect)) = self.pane_at(x, y) else {
@@ -357,11 +361,8 @@ impl Window {
     /// The release of the button whose press was reported goes to that pane,
     /// wherever the pointer is. True when consumed.
     fn report_release(&mut self, button: MouseButton) -> bool {
-        let code = match button {
-            MouseButton::Left => MouseButtonCode::Left,
-            MouseButton::Middle => MouseButtonCode::Middle,
-            MouseButton::Right => MouseButtonCode::Right,
-            _ => return false,
+        let Some(code) = button_code(button) else {
+            return false;
         };
         let Some(id) = self.mouse.held.release(code) else {
             return false;
@@ -423,13 +424,9 @@ impl Window {
     /// `id` at `rect`, clamped into the grid.
     fn screen_cell(&mut self, id: PaneId, rect: Rect) -> Option<(usize, usize)> {
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let (x, y) = self.mouse.pos;
-        let term = self.panes.get(&id)?.term.lock();
-        let (cols, lines) = (term.columns(), term.screen_lines());
-        drop(term);
-        let (p, _) = point_at(content, cw, ch, cols, lines, 0, x, y);
+        let g = grid_geom(&font, rect, &*self.panes.get(&id)?.term.lock());
+        let (p, _) = g.point_at(0, x, y);
         Some((p.column.0, p.line.0.max(0) as usize))
     }
 
@@ -534,18 +531,14 @@ impl Window {
         )
     }
 
-    /// Pane overlay inset: `edge_px(scale)` (4 px at scale 1), so HiDPI keeps
-    /// the same look; it also pads the buttons over a cell. It equals the
-    /// edge-resize zone's width, so the overlay never overlaps that zone.
+    /// Pane overlay inset: the edge-resize zone's width, so the overlay never overlaps it.
     pub(super) fn overlay_inset(&self) -> i32 {
         edge_px(self.scale)
     }
 
-    /// The overlay of the pane under the pointer, with that pane and the
-    /// hovered button. None while a modal is open or a divider is dragged,
-    /// off the panes (over the bar, outside the window), after a key press
-    /// until the pointer moves again, or in a pane too small for it.
-    /// (No tabs left: the overlay's Close just closed the last pane.)
+    /// The overlay of the pane under the pointer, with that pane and the hovered button.
+    /// None off the panes, during a modal or divider drag, after a key until the pointer
+    /// moves, or in a pane too small for it.
     pub(super) fn overlay_at_pointer(&self) -> Option<(PaneId, Overlay, Option<OverlayTarget>)> {
         if self.tabs.is_empty()
             || self.modal_open()
@@ -584,11 +577,9 @@ impl Window {
         }
     }
 
-    /// A press on an overlay button is consumed (no divider drag or pane
-    /// click). With `pane_drag` on (and no pane maximized, and several panes) a left press only starts a
-    /// `PaneDrag`: the button acts on release, unless the pointer moved far enough to
-    /// drag the pane. Otherwise a left press acts at once (`overlay_click`).
-    /// True when consumed.
+    /// A press on an overlay button; true when consumed. Where the pane drag is offered a
+    /// left press only starts a `PaneDrag` (the button acts on release unless the pane is
+    /// dragged); otherwise it acts at once.
     fn overlay_press(&mut self, button: MouseButton) -> bool {
         let Some((id, o, Some(target))) = self.overlay_at_pointer() else {
             return false;

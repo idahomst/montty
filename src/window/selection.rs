@@ -10,10 +10,11 @@ use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::{Term, TermMode};
 
 use super::Window;
+use super::mouse::grid_geom;
 use crate::clipboard::ClipKind;
 use crate::input::paste::paste_bytes;
 use crate::layout::{PaneId, Rect};
-use crate::term::grid_point::{MultiClick, point_at};
+use crate::term::grid_point::MultiClick;
 
 /// A selection being dragged in `pane`.
 pub(super) struct SelectDrag {
@@ -52,11 +53,6 @@ fn press_kind(clicks: u8, shift: bool, alt: bool, has_selection: bool, mouse_mod
         (_, 3) => SelectionType::Lines,
         _ => SelectionType::Simple,
     })
-}
-
-/// A press-release that never moved (a plain single click) clears the selection.
-fn clears_on_release(moved: bool) -> bool {
-    !moved
 }
 
 /// The whole grid, history included, as one Lines selection.
@@ -154,19 +150,15 @@ impl Window {
         autoscroll: bool,
     ) -> Option<(Point, Side, bool)> {
         let font = self.pane_font(id);
-        let content = rect.inset(font.padding);
-        let (cw, ch) = (font.metrics.cell_width, font.metrics.cell_height);
         let (x, y) = self.mouse.pos();
         let mut term = self.panes.get(&id)?.term.lock();
-        let (cols, lines) = (term.columns(), term.screen_lines());
-        let bottom = content.y + (lines as u32 * ch) as i32;
+        let g = grid_geom(&font, rect, &*term);
         let mut scrolled = false;
-        if autoscroll && (y < content.y || y >= bottom) {
-            term.scroll_display(Scroll::Delta(if y < content.y { 1 } else { -1 }));
+        if autoscroll && (y < g.content.y || y >= g.bottom()) {
+            term.scroll_display(Scroll::Delta(if y < g.content.y { 1 } else { -1 }));
             scrolled = true;
         }
-        let offset = term.grid().display_offset();
-        let (p, side) = point_at(content, cw, ch, cols, lines, offset, x, y);
+        let (p, side) = g.point_at(term.grid().display_offset(), x, y);
         drop(term);
         if scrolled {
             self.mark_scrolled(id);
@@ -211,14 +203,7 @@ impl Window {
         let Some(id) = self.mouse.select.drag.as_ref().map(|d| d.pane) else {
             return;
         };
-        let rect = self
-            .tabs
-            .active()
-            .tree
-            .layout(self.area())
-            .into_iter()
-            .find_map(|(p, r)| (p == id).then_some(r));
-        let point = rect.and_then(|r| self.pane_point(id, r, true));
+        let point = (self.pane_rect(id)).and_then(|r| self.pane_point(id, r, true));
         let Some((p, side, scrolled)) = point else {
             self.mouse.select.drag = None;
             return;
@@ -244,7 +229,8 @@ impl Window {
             return;
         };
         let mut term = pane.term.lock();
-        if clears_on_release(d.moved) {
+        // A press-release that never moved (a plain single click) clears the selection.
+        if !d.moved {
             term.selection = None;
         }
         let done = term.selection.as_ref().is_some_and(|s| !s.is_empty());
@@ -301,8 +287,7 @@ mod tests {
             Press::Start(SelectionType::Block)
         );
         // An unmoved Shift+click there is a plain click: it clears on release.
-        let moved = press(1) == Press::Extend;
-        assert!(clears_on_release(moved));
+        assert_ne!(press(1), Press::Extend);
     }
 
     #[test]
@@ -320,11 +305,5 @@ mod tests {
         let text = t.selection_to_string().unwrap();
         assert!(text.starts_with("one\ntwo\n"), "{text:?}");
         assert!(text.contains("four\nfive"), "{text:?}");
-    }
-
-    #[test]
-    fn only_an_unmoved_click_clears() {
-        assert!(clears_on_release(false));
-        assert!(!clears_on_release(true));
     }
 }

@@ -3,6 +3,7 @@
 use super::text::display_width;
 use super::topbar::BarMetrics;
 use crate::layout::Rect;
+use crate::ui::{centered, modal_extent};
 
 pub struct InfoPanel {
     pub title: String,
@@ -91,7 +92,7 @@ impl InfoPanel {
     pub fn rect(&self, win_w: i32, win_h: i32, bm: &BarMetrics) -> Rect {
         // Title row, a pad gap, then the body lines.
         let want_h = (self.lines.len() as i32 + 1) * bm.cell_h + 3 * bm.pad;
-        let h = want_h.min(win_h * 9 / 10).max(0);
+        let h = modal_extent(want_h, win_h);
         let scrolls = h < want_h;
         let marker = more_text(PanelRow::MoreBelow(self.lines.len())).filter(|_| scrolls);
         let cols = self
@@ -103,28 +104,13 @@ impl InfoPanel {
             .max()
             .unwrap_or(0) as i32;
         let want_w = cols * bm.cell_w + 2 * bm.pad;
-        let w = want_w.min(win_w * 9 / 10).max(0);
-        Rect {
-            x: ((win_w - w) / 2).max(0),
-            y: ((win_h - h) / 2).max(0),
-            w,
-            h,
-        }
+        centered(modal_extent(want_w, win_w), h, win_w, win_h)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
-        }
-    }
 
     fn panel(n: usize) -> InfoPanel {
         InfoPanel::new(
@@ -136,22 +122,22 @@ mod tests {
     #[test]
     fn panel_centered_and_clamped() {
         let p = panel(3);
-        let r = p.rect(800, 600, &bm());
+        let r = p.rect(800, 600, &BarMetrics::test());
         assert_eq!(r.w, 14 * 8 + 12);
         assert_eq!(r.x, (800 - r.w) / 2);
         assert_eq!(r.y, (600 - r.h) / 2);
         // Many lines clamp to 90% of the window height.
-        let r = panel(200).rect(800, 600, &bm());
+        let r = panel(200).rect(800, 600, &BarMetrics::test());
         assert_eq!(r.h, 540);
         assert_eq!(r.y, 30);
         // A long line clamps to 90% of the width.
         let wide = InfoPanel::new("t", vec!["x".repeat(500)]);
-        assert_eq!(wide.rect(800, 600, &bm()).w, 720);
+        assert_eq!(wide.rect(800, 600, &BarMetrics::test()).w, 720);
     }
 
     #[test]
     fn scrolling_panel_fits_its_marker() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let short = |n: usize| InfoPanel::new("T", (0..n).map(|i| i.to_string()).collect());
         // "↓ 100 more" is 10 columns, wider than any line.
         assert_eq!(short(100).rect(800, 600, &bm).w, 10 * 8 + 12);
@@ -162,14 +148,14 @@ mod tests {
     #[test]
     fn panel_never_negative() {
         for (w, h) in [(0, 0), (1, 1), (5, 3)] {
-            let r = panel(5).rect(w, h, &bm());
+            let r = panel(5).rect(w, h, &BarMetrics::test());
             assert!(r.x >= 0 && r.y >= 0 && r.w >= 0 && r.h >= 0, "{r:?}");
         }
     }
 
     #[test]
     fn visible_lines_fit_below_title() {
-        let bm = bm();
+        let bm = BarMetrics::test();
         let p = panel(200);
         let r = p.rect(800, 600, &bm);
         // 540 px: pad, title, pad, rows, pad.

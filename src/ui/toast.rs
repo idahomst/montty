@@ -7,6 +7,7 @@ use super::text::{display_width, sanitize, truncate};
 use super::topbar::BarMetrics;
 use crate::config::ConfigError;
 use crate::layout::Rect;
+use crate::ui::modal_extent;
 
 /// How long a toast stays up.
 pub const TOAST_DURATION: Duration = Duration::from_secs(8);
@@ -24,9 +25,10 @@ pub enum ToastSource {
     Watcher,
     /// A profile's font family isn't installed (the pane uses monospace).
     Font,
-    /// A profile's shell or command couldn't start (the pane runs a fallback shell), or no
-    /// shell would start for a split or new tab. A reload doesn't fix it, so it doesn't hide it.
-    Spawn,
+    /// An action failed: a profile's shell or command couldn't start (the pane runs a
+    /// fallback shell), no shell would start for a split or new tab, or a session or profile
+    /// couldn't be opened or saved. A reload doesn't fix it, so it doesn't hide it.
+    Error,
     /// A profile's background image is missing or can't be decoded (the pane draws without).
     Image,
     /// Something that worked (`saved session 'x'`): neutral colors, not an error.
@@ -44,7 +46,6 @@ pub struct Toast {
 }
 
 /// ` (+N more)` for `total` messages shown as one (the first), or nothing for 0 or 1.
-/// The one place that builds this suffix, for config and image errors.
 pub fn more_suffix(total: usize) -> String {
     match total.saturating_sub(1) {
         0 => String::new(),
@@ -117,11 +118,11 @@ impl Toast {
     /// tall and at most 90 % of the window wide (the text is then truncated).
     pub fn rect(&self, win_w: i32, win_h: i32, bm: &BarMetrics) -> Rect {
         let text_w = (display_width(&self.text) + display_width(&self.tail)) as i32 * bm.cell_w;
-        let w = (text_w + 2 * bm.pad).min(win_w * 9 / 10).max(0);
+        let w = modal_extent(text_w + 2 * bm.pad, win_w);
         let h = bm.cell_h + 2 * bm.pad;
         Rect {
             x: (win_w - w) / 2,
-            y: win_h - 2 * bm.pad - h,
+            y: (win_h - 2 * bm.pad - h).max(0),
             w,
             h,
         }
@@ -165,15 +166,6 @@ mod tests {
             file: file.into(),
             line,
             msg: msg.into(),
-        }
-    }
-
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
         }
     }
 
@@ -251,7 +243,7 @@ mod tests {
         let now = Instant::now();
         // 10 columns: 80 px of text plus 6 px padding each side.
         let t = Toast::new("0123456789", ToastSource::Watcher, now);
-        let r = t.rect(800, 600, &bm());
+        let r = t.rect(800, 600, &BarMetrics::test());
         assert_eq!(
             r,
             Rect {
@@ -263,12 +255,13 @@ mod tests {
         );
         // Too long: 90 % of the window.
         let t = Toast::new(&"x".repeat(200), ToastSource::Watcher, now);
-        let r = t.rect(800, 600, &bm());
+        let r = t.rect(800, 600, &BarMetrics::test());
         assert_eq!((r.x, r.w), (40, 720));
         assert_eq!(r.y + r.h, 600 - 12);
-        // A tiny window never gets a negative size.
-        let r = t.rect(0, 0, &bm());
+        // A tiny window never gets a negative size, or a toast above its top edge.
+        let r = t.rect(0, 0, &BarMetrics::test());
         assert!(r.w >= 0 && r.h >= 0);
+        assert_eq!(t.rect(800, 20, &BarMetrics::test()).y, 0);
     }
 
     #[test]

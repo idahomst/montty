@@ -3,22 +3,15 @@
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+mod common;
+
+use common::TempDir;
 use montty::decoder::decode_in_helper;
 use montty::render::image::Rgba8;
 
 const EXE: &str = env!("CARGO_BIN_EXE_montty");
-
-fn tmp(name: &str) -> PathBuf {
-    static N: AtomicUsize = AtomicUsize::new(0);
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    let d = std::env::temp_dir().join(format!("montty-dec-{}-{n}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&d);
-    std::fs::create_dir_all(&d).unwrap();
-    d
-}
 
 fn png(w: u32, h: u32, f: impl Fn(u32, u32) -> [u8; 4]) -> Vec<u8> {
     let mut out = Vec::new();
@@ -39,35 +32,37 @@ fn run(args: &[&str]) -> std::process::Output {
 }
 
 #[test]
-fn helper_decodes_a_png() {
-    let d = tmp("ok");
+fn helper_decodes_a_png_raw_and_via_the_parent() {
+    let d = TempDir::new("dec-ok");
     let f = d.join("a.png");
-    std::fs::write(&f, png(3, 2, |x, y| [x as u8 * 10, y as u8 * 20, 7, 255])).unwrap();
+    std::fs::write(&f, png(3, 2, |x, y| [x as u8 * 10, y as u8 * 20, 7, 200])).unwrap();
     let o = run(&["--decode-image", f.to_str().unwrap(), "100", "100"]);
     assert_eq!(o.status.code(), Some(0));
     let b = &o.stdout;
     assert_eq!(&b[..4], &3u32.to_le_bytes());
     assert_eq!(&b[4..8], &2u32.to_le_bytes());
     assert_eq!(b.len(), 8 + 3 * 2 * 4);
-    assert_eq!(&b[8..12], &[0, 0, 7, 255]);
-    assert_eq!(&b[8 + 4 * 4..8 + 4 * 5], &[10, 20, 7, 255]);
-    let _ = std::fs::remove_dir_all(d);
+    assert_eq!(&b[8..12], &[0, 0, 7, 200]);
+    assert_eq!(&b[8 + 4 * 4..8 + 4 * 5], &[10, 20, 7, 200]);
+    // The parent side parses the same bytes into an image.
+    let img = decode_in_helper(Path::new(EXE), &f, (100, 100), Duration::from_secs(10)).unwrap();
+    assert_eq!((img.w, img.h), (3, 2));
+    assert_eq!(&img.px[..4], &[0, 0, 7, 200]);
 }
 
 #[test]
 fn helper_downscales_to_the_limit() {
-    let d = tmp("down");
+    let d = TempDir::new("dec-down");
     let f = d.join("a.png");
     std::fs::write(&f, png(40, 20, |_, _| [1, 2, 3, 255])).unwrap();
     let img = decode_in_helper(Path::new(EXE), &f, (10, 10), Duration::from_secs(10)).unwrap();
     assert!(img.w <= 10 && img.h <= 10 && img.w > 0 && img.h > 0);
     assert_eq!(img.px.len(), (img.w * img.h * 4) as usize);
-    let _ = std::fs::remove_dir_all(d);
 }
 
 #[test]
 fn helper_reports_a_missing_file() {
-    let d = tmp("missing");
+    let d = TempDir::new("dec-missing");
     let f = d.join("nope.png");
     let o = run(&["--decode-image", f.to_str().unwrap(), "100", "100"]);
     assert_eq!(o.status.code(), Some(2));
@@ -76,12 +71,11 @@ fn helper_reports_a_missing_file() {
     assert_eq!(String::from_utf8_lossy(&o.stderr).trim(), want);
     let e = decode_in_helper(Path::new(EXE), &f, (100, 100), Duration::from_secs(10));
     assert_eq!(e.unwrap_err(), want);
-    let _ = std::fs::remove_dir_all(d);
 }
 
 #[test]
 fn helper_refuses_a_forged_header() {
-    let d = tmp("forged");
+    let d = TempDir::new("dec-forged");
     let f = d.join("bomb.png");
     // A valid-looking IHDR declaring 100000×100000; the CRC is wrong, but the size is
     // checked from the header before anything reads on.
@@ -100,28 +94,15 @@ fn helper_refuses_a_forged_header() {
         "{e}"
     );
     assert_ne!(e, "decoder crashed");
-    let _ = std::fs::remove_dir_all(d);
 }
 
 #[test]
 fn helper_rejects_bad_format() {
-    let d = tmp("bad");
+    let d = TempDir::new("dec-bad");
     let f = d.join("x.png");
     std::fs::write(&f, b"GIF89a....").unwrap();
     let e = decode_in_helper(Path::new(EXE), &f, (100, 100), Duration::from_secs(10));
     assert_eq!(e.unwrap_err(), "unsupported image format");
-    let _ = std::fs::remove_dir_all(d);
-}
-
-#[test]
-fn helper_decodes_in_a_child_png_roundtrip() {
-    let d = tmp("rt");
-    let f = d.join("a.png");
-    std::fs::write(&f, png(5, 4, |x, y| [x as u8, y as u8, 9, 200])).unwrap();
-    let img = decode_in_helper(Path::new(EXE), &f, (100, 100), Duration::from_secs(10)).unwrap();
-    assert_eq!((img.w, img.h), (5, 4));
-    assert_eq!(&img.px[..4], &[0, 0, 9, 200]);
-    let _ = std::fs::remove_dir_all(d);
 }
 
 /// `decode_in_helper`, tried again while another test's fork still holds the script's
@@ -147,11 +128,9 @@ fn fake(d: &Path, body: &str) -> PathBuf {
 }
 
 fn via(body: &str, max: (u32, u32), timeout: Duration) -> Result<Rgba8, String> {
-    let d = tmp("fake");
+    let d = TempDir::new("dec-fake");
     let exe = fake(&d, body);
-    let r = decode_retrying(&exe, max, timeout);
-    let _ = std::fs::remove_dir_all(d);
-    r
+    decode_retrying(&exe, max, timeout)
 }
 
 const T: Duration = Duration::from_secs(10);
@@ -172,7 +151,7 @@ fn fake_segv_and_abort_are_crashes() {
 
 #[test]
 fn fake_timeout_kills_the_child() {
-    let d = tmp("sleep");
+    let d = TempDir::new("dec-sleep");
     let exe = fake(&d, &format!("echo $$ > {}/pid\nsleep 30", d.display()));
     let t = Instant::now();
     let r = decode_retrying(&exe, (9, 9), Duration::from_secs(2));
@@ -181,9 +160,10 @@ fn fake_timeout_kills_the_child() {
     assert!(t.elapsed() >= Duration::from_secs(2), "{:?}", t.elapsed());
     assert!(t.elapsed() < Duration::from_secs(10), "{:?}", t.elapsed());
     let pid = std::fs::read_to_string(d.join("pid")).unwrap();
-    let alive = Path::new(&format!("/proc/{}", pid.trim())).exists();
+    let pid: libc::pid_t = pid.trim().parse().unwrap();
+    // SAFETY: signal 0 only checks that the process exists.
+    let alive = unsafe { libc::kill(pid, 0) } == 0;
     assert!(!alive, "child still there");
-    let _ = std::fs::remove_dir_all(d);
 }
 
 #[test]

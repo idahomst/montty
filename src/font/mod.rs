@@ -110,6 +110,12 @@ pub fn resolve_family(requested: &str, db: &fontdb::Database) -> Option<String> 
     found
 }
 
+/// `monospace` when fc-match has no answer (macOS has no fontconfig unless installed).
+#[cfg(not(target_os = "macos"))]
+const MONOSPACE: &[&str] = &["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"];
+#[cfg(target_os = "macos")]
+const MONOSPACE: &[&str] = &["Menlo", "Monaco"];
+
 fn resolve_uncached(requested: &str, db: &fontdb::Database) -> Option<String> {
     #[cfg(test)]
     RESOLVE_RUNS.with(|n| n.set(n.get() + 1));
@@ -127,7 +133,7 @@ fn resolve_uncached(requested: &str, db: &fontdb::Database) -> Option<String> {
                 return Some(n);
             }
         }
-        for cand in ["DejaVu Sans Mono", "Noto Sans Mono", "Liberation Mono"] {
+        for &cand in MONOSPACE {
             if let Some(n) = has_family(db, cand) {
                 return Some(n);
             }
@@ -160,6 +166,71 @@ fn shared_file(path: &Path) -> Option<Data> {
     Some(data)
 }
 
+/// The face's file data (mapped once per file, see `shared_file`) and its index in it.
+fn face_data(db: &fontdb::Database, id: fontdb::ID) -> Option<(Data, u32)> {
+    let (source, index) = db.face_source(id)?;
+    let data: Data = match source {
+        fontdb::Source::Binary(d) => d,
+        fontdb::Source::SharedFile(_, d) => d,
+        fontdb::Source::File(path) => shared_file(&path)?,
+    };
+    Some((data, index))
+}
+
+/// The chars a face maps to a glyph, as sorted, disjoint, inclusive ranges.
+#[derive(Default)]
+struct Coverage(Vec<(u32, u32)>);
+
+/// The color emoji font: Noto on Linux, Apple's on macOS.
+fn is_color_emoji_face(f: &fontdb::FaceInfo) -> bool {
+    f.families
+        .iter()
+        .any(|(n, _)| n == "Noto Color Emoji" || n == "Apple Color Emoji")
+}
+
+impl Coverage {
+    /// Empty when the face can't be read, or has nothing `rasterize` can draw: macOS
+    /// ships bitmap-only faces (Apple `bdat`, e.g. "GB18030 Bitmap") that map CJK.
+    fn of(db: &fontdb::Database, id: fontdb::ID, ctx: &mut ScaleContext) -> Coverage {
+        let Some((data, index)) = face_data(db, id) else {
+            return Coverage::default();
+        };
+        let Some(font) = FontRef::from_index((*data).as_ref(), index as usize) else {
+            return Coverage::default();
+        };
+        let scaler = ctx.builder(font).build();
+        if !(scaler.has_outlines() || scaler.has_color_outlines() || scaler.has_color_bitmaps()) {
+            return Coverage::default();
+        }
+        let mut cps = Vec::new();
+        font.charmap().enumerate(|cp, glyph| {
+            if glyph != 0 {
+                cps.push(cp);
+            }
+        });
+        Coverage::from_chars(cps)
+    }
+
+    fn from_chars(mut cps: Vec<u32>) -> Coverage {
+        cps.sort_unstable();
+        let mut ranges: Vec<(u32, u32)> = Vec::new();
+        for cp in cps {
+            match ranges.last_mut() {
+                Some((_, end)) if cp <= *end + 1 => *end = (*end).max(cp),
+                _ => ranges.push((cp, cp)),
+            }
+        }
+        ranges.shrink_to_fit();
+        Coverage(ranges)
+    }
+
+    fn contains(&self, ch: char) -> bool {
+        let cp = ch as u32;
+        let i = self.0.partition_point(|&(_, end)| end < cp);
+        self.0.get(i).is_some_and(|&(start, _)| start <= cp)
+    }
+}
+
 struct Face {
     is_color_emoji: bool,
     data: Data,
@@ -169,17 +240,10 @@ struct Face {
 
 impl Face {
     fn load(db: &fontdb::Database, id: fontdb::ID) -> Option<Face> {
-        let (source, index) = db.face_source(id)?;
-        let data: Data = match source {
-            fontdb::Source::Binary(d) => d,
-            fontdb::Source::SharedFile(_, d) => d,
-            fontdb::Source::File(path) => shared_file(&path)?,
-        };
+        let (data, index) = face_data(db, id)?;
         let font = FontRef::from_index((*data).as_ref(), index as usize)?;
         let (offset, key) = (font.offset, font.key);
-        let is_color_emoji = db
-            .face(id)
-            .is_some_and(|f| f.families.iter().any(|(n, _)| n == "Noto Color Emoji"));
+        let is_color_emoji = db.face(id).is_some_and(is_color_emoji_face);
         Some(Face {
             is_color_emoji,
             data,
@@ -210,6 +274,10 @@ pub struct FontSet {
     fallback_by_id: HashMap<fontdb::ID, usize>,
     /// Result of fallback search per char, including failed searches.
     fallback: HashMap<char, Option<usize>>,
+    /// Every db face's coverage, in `db.faces()` order, read on the first scan: mapping
+    /// each file again per uncovered char took ~10 ms a scan, and keeping the mappings
+    /// kept tens of MB of cmap pages in RSS.
+    coverage: Option<Vec<Coverage>>,
     ctx: ScaleContext,
     db_scans: usize,
 }
@@ -280,6 +348,7 @@ impl FontSet {
             fallback_by_id: HashMap::new(),
             fallback: HashMap::new(),
             ctx: ScaleContext::new(),
+            coverage: None,
             db_scans: 0,
         })
     }
@@ -304,6 +373,7 @@ impl FontSet {
     }
 
     /// True if the fallback search for `ch` has already been done (hit or miss).
+    #[cfg(test)]
     pub fn is_cached(&self, ch: char) -> bool {
         self.fallback.contains_key(&ch)
     }
@@ -340,19 +410,14 @@ impl FontSet {
     fn scan_db(&mut self, ch: char) -> Option<fontdb::ID> {
         self.db_scans += 1;
         let emoji = is_emoji_cp(ch);
+        let (db, ctx) = (&self.db, &mut self.ctx);
+        let coverage = self
+            .coverage
+            .get_or_insert_with(|| db.faces().map(|f| Coverage::of(db, f.id, ctx)).collect());
         let mut best: Option<(u32, fontdb::ID)> = None;
-        for f in self.db.faces() {
-            let is_emoji_face = f.families.iter().any(|(n, _)| n == "Noto Color Emoji");
-            if emoji && !is_emoji_face && best.is_some_and(|(s, _)| s >= 100) {
-                continue;
-            }
-            let covered = self
-                .db
-                .with_face_data(f.id, |d, i| {
-                    FontRef::from_index(d, i as usize).is_some_and(|f| f.charmap().map(ch) != 0)
-                })
-                .unwrap_or(false);
-            if !covered {
+        for (f, cov) in db.faces().zip(coverage.iter()) {
+            let is_emoji_face = is_color_emoji_face(f);
+            if !cov.contains(ch) {
                 continue;
             }
             let mut score = 1;
@@ -423,6 +488,8 @@ impl FontSet {
             return None;
         }
         match image.content {
+            // The atlas is RGBA for color glyphs; a mask keeps its coverage in alpha, which
+            // the shader tints with the cell's fg.
             Content::Mask => {
                 let mut data = Vec::with_capacity(image.data.len() * 4);
                 for &a in &image.data {
@@ -549,7 +616,7 @@ impl FontCache {
 /// Premultiplied RGBA to straight alpha in place: rgb·255/a, rounded and clamped;
 /// fully transparent pixels are left alone.
 fn unpremultiply(rgba: &mut [u8]) {
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         let a = u32::from(px[3]);
         if a == 0 || a == 255 {
             continue;
@@ -614,6 +681,19 @@ fn fit_color(g: RasterGlyph, target_h: u32) -> RasterGlyph {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coverage_merges_runs_and_finds_members() {
+        let c = Coverage::from_chars(vec![0x42, 0x41, 0x43, 0x41, 0x100, 0x1F600]);
+        assert_eq!(c.0, vec![(0x41, 0x43), (0x100, 0x100), (0x1F600, 0x1F600)]);
+        for ch in ['A', 'B', 'C', '\u{100}', '\u{1F600}'] {
+            assert!(c.contains(ch), "{ch:?}");
+        }
+        for ch in ['@', 'D', '\u{FF}', '\u{101}', '\u{1F601}'] {
+            assert!(!c.contains(ch), "{ch:?}");
+        }
+        assert!(!Coverage::default().contains('A'));
+    }
 
     fn set(scale: f64) -> FontSet {
         FontSet::load(&FontSpec::default(), scale, system_db()).expect("load default font")
@@ -768,9 +848,15 @@ mod tests {
     #[test]
     fn bold_differs_and_emoji_is_color_and_fits() {
         let mut s = set(1.0);
+        let family = resolve_family("monospace", &s.db);
         let reg = s.rasterize('A', Style::Regular).unwrap();
         let bold = s.rasterize('A', Style::Bold).unwrap();
-        assert_ne!(reg.data, bold.data);
+        // A family without a bold face draws bold as regular (no synthetic bold).
+        if s.primary[Style::Bold.index()].is_some() {
+            assert_ne!(reg.data, bold.data, "{family:?}");
+        } else {
+            eprintln!("no bold face in {family:?}");
+        }
         if let Some(e) = s.rasterize('😀', Style::Regular) {
             assert!(e.color);
             assert!(e.height <= s.metrics().cell_height);

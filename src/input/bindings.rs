@@ -38,67 +38,47 @@ impl KeyCombo {
     }
 }
 
-fn parse_named(name: &str) -> Option<NamedKey> {
+/// Named keys: config spelling (lowercase), key, display label. An alias is a later row for the
+/// same key: it parses but `named_label` finds the first row, so the label is never the alias.
+const NAMED: &[(&str, NamedKey, &str)] = {
     use NamedKey::*;
-    Some(match name {
-        "up" => ArrowUp,
-        "down" => ArrowDown,
-        "left" => ArrowLeft,
-        "right" => ArrowRight,
-        "pageup" | "page_up" => PageUp,
-        "pagedown" | "page_down" => PageDown,
-        "insert" => Insert,
-        "delete" => Delete,
-        "home" => Home,
-        "end" => End,
-        "tab" => Tab,
-        "escape" => Escape,
-        "f1" => F1,
-        "f2" => F2,
-        "f3" => F3,
-        "f4" => F4,
-        "f5" => F5,
-        "f6" => F6,
-        "f7" => F7,
-        "f8" => F8,
-        "f9" => F9,
-        "f10" => F10,
-        "f11" => F11,
-        "f12" => F12,
-        _ => return None,
-    })
+    &[
+        ("up", ArrowUp, "Up"),
+        ("down", ArrowDown, "Down"),
+        ("left", ArrowLeft, "Left"),
+        ("right", ArrowRight, "Right"),
+        ("pageup", PageUp, "PageUp"),
+        ("page_up", PageUp, "PageUp"),
+        ("pagedown", PageDown, "PageDown"),
+        ("page_down", PageDown, "PageDown"),
+        ("insert", Insert, "Insert"),
+        ("delete", Delete, "Delete"),
+        ("home", Home, "Home"),
+        ("end", End, "End"),
+        ("tab", Tab, "Tab"),
+        ("escape", Escape, "Escape"),
+        ("f1", F1, "F1"),
+        ("f2", F2, "F2"),
+        ("f3", F3, "F3"),
+        ("f4", F4, "F4"),
+        ("f5", F5, "F5"),
+        ("f6", F6, "F6"),
+        ("f7", F7, "F7"),
+        ("f8", F8, "F8"),
+        ("f9", F9, "F9"),
+        ("f10", F10, "F10"),
+        ("f11", F11, "F11"),
+        ("f12", F12, "F12"),
+    ]
+};
+
+fn parse_named(name: &str) -> Option<NamedKey> {
+    NAMED.iter().find(|r| r.0 == name).map(|r| r.1)
 }
 
 /// The display name for a named key; the inverse of `parse_named` (modulo aliases).
 fn named_label(key: NamedKey) -> Option<&'static str> {
-    use NamedKey::*;
-    Some(match key {
-        ArrowUp => "Up",
-        ArrowDown => "Down",
-        ArrowLeft => "Left",
-        ArrowRight => "Right",
-        PageUp => "PageUp",
-        PageDown => "PageDown",
-        Insert => "Insert",
-        Delete => "Delete",
-        Home => "Home",
-        End => "End",
-        Tab => "Tab",
-        Escape => "Escape",
-        F1 => "F1",
-        F2 => "F2",
-        F3 => "F3",
-        F4 => "F4",
-        F5 => "F5",
-        F6 => "F6",
-        F7 => "F7",
-        F8 => "F8",
-        F9 => "F9",
-        F10 => "F10",
-        F11 => "F11",
-        F12 => "F12",
-        _ => return None,
-    })
+    NAMED.iter().find(|r| r.1 == key).map(|r| r.2)
 }
 
 /// `'0'..='9'` for a digit-row key (by physical position).
@@ -247,112 +227,82 @@ pub enum Action {
     ShowSizes,
 }
 
+/// Every action without a number: the variant, its `[keybindings]` name and its label in the
+/// shortcuts list, in the order of the docs. The numbered families are handled in the methods.
+const TABLE: &[(Action, &str, &str)] = {
+    use Action::*;
+    &[
+        (SplitRight, "split_right", "Split right"),
+        (SplitDown, "split_down", "Split down"),
+        (SplitLeft, "split_left", "Split left"),
+        (SplitUp, "split_up", "Split up"),
+        (SplitAuto, "split_auto", "Split automatically"),
+        (FocusUp, "focus_up", "Focus pane above"),
+        (FocusDown, "focus_down", "Focus pane below"),
+        (FocusLeft, "focus_left", "Focus pane left"),
+        (FocusRight, "focus_right", "Focus pane right"),
+        (NextPane, "next_pane", "Next pane"),
+        (PrevPane, "prev_pane", "Previous pane"),
+        (ResizeUp, "resize_up", "Resize pane up"),
+        (ResizeDown, "resize_down", "Resize pane down"),
+        (ResizeLeft, "resize_left", "Resize pane left"),
+        (ResizeRight, "resize_right", "Resize pane right"),
+        (MaximizePane, "maximize_pane", "Maximize pane"),
+        (ClosePane, "close_pane", "Close pane"),
+        (NewTab, "new_tab", "New tab"),
+        (CloseTab, "close_tab", "Close tab"),
+        (NextTab, "next_tab", "Next tab"),
+        (PrevTab, "prev_tab", "Previous tab"),
+        (MoveTabLeft, "move_tab_left", "Move tab left"),
+        (MoveTabRight, "move_tab_right", "Move tab right"),
+        (SaveSession, "save_session", "Save session"),
+        (OpenSession, "open_session", "Open session"),
+        (NewWindow, "new_window", "New window"),
+        (Copy, "copy", "Copy"),
+        (Paste, "paste", "Paste"),
+        (PastePrimary, "paste_primary", "Paste selection"),
+        (SelectAll, "select_all", "Select all"),
+        (Find, "find", "Find"),
+        (FindNext, "find_next", "Find next"),
+        (FindPrev, "find_prev", "Find previous"),
+        (ScrollLineUp, "scroll_line_up", "Scroll line up"),
+        (ScrollLineDown, "scroll_line_down", "Scroll line down"),
+        (ScrollPageUp, "scroll_page_up", "Scroll page up"),
+        (ScrollPageDown, "scroll_page_down", "Scroll page down"),
+        (ZoomIn, "zoom_in", "Zoom in"),
+        (ZoomOut, "zoom_out", "Zoom out"),
+        (ZoomReset, "zoom_reset", "Reset zoom"),
+        (Fullscreen, "fullscreen", "Toggle fullscreen"),
+        (ShowSizes, "show_sizes", "Show pane sizes"),
+    ]
+};
+
 impl Action {
     /// The snake_case name used in config.toml's `[keybindings]`, e.g. `split_right`, `focus_pane_3`.
     pub fn config_name(&self) -> String {
-        use Action::*;
         match self {
-            FocusPane(n) => format!("focus_pane_{n}"),
-            GoToTab(n) => format!("go_to_tab_{n}"),
-            SplitRight => "split_right".into(),
-            SplitDown => "split_down".into(),
-            SplitLeft => "split_left".into(),
-            SplitUp => "split_up".into(),
-            SplitAuto => "split_auto".into(),
-            FocusUp => "focus_up".into(),
-            FocusDown => "focus_down".into(),
-            FocusLeft => "focus_left".into(),
-            FocusRight => "focus_right".into(),
-            NextPane => "next_pane".into(),
-            PrevPane => "prev_pane".into(),
-            ResizeUp => "resize_up".into(),
-            ResizeDown => "resize_down".into(),
-            ResizeLeft => "resize_left".into(),
-            ResizeRight => "resize_right".into(),
-            MaximizePane => "maximize_pane".into(),
-            ClosePane => "close_pane".into(),
-            NewTab => "new_tab".into(),
-            CloseTab => "close_tab".into(),
-            NextTab => "next_tab".into(),
-            PrevTab => "prev_tab".into(),
-            MoveTabLeft => "move_tab_left".into(),
-            MoveTabRight => "move_tab_right".into(),
-            SaveSession => "save_session".into(),
-            OpenSession => "open_session".into(),
-            NewWindow => "new_window".into(),
-            Copy => "copy".into(),
-            Paste => "paste".into(),
-            PastePrimary => "paste_primary".into(),
-            SelectAll => "select_all".into(),
-            Find => "find".into(),
-            FindNext => "find_next".into(),
-            FindPrev => "find_prev".into(),
-            ScrollLineUp => "scroll_line_up".into(),
-            ScrollLineDown => "scroll_line_down".into(),
-            ScrollPageUp => "scroll_page_up".into(),
-            ScrollPageDown => "scroll_page_down".into(),
-            ZoomIn => "zoom_in".into(),
-            ZoomOut => "zoom_out".into(),
-            ZoomReset => "zoom_reset".into(),
-            Fullscreen => "fullscreen".into(),
-            ShowSizes => "show_sizes".into(),
+            Action::FocusPane(n) => format!("focus_pane_{n}"),
+            Action::GoToTab(n) => format!("go_to_tab_{n}"),
+            _ => self.row().1.into(),
         }
+    }
+
+    fn row(&self) -> &'static (Action, &'static str, &'static str) {
+        TABLE
+            .iter()
+            .find(|r| r.0 == *self)
+            .unwrap_or_else(|| panic!("{self:?} has no row in TABLE"))
     }
 
     /// Every action, with `FocusPane` and `GoToTab` for 1..=10, in the order of the docs.
     pub fn all() -> Vec<Action> {
-        use Action::*;
-        let mut v = vec![
-            SplitRight,
-            SplitDown,
-            SplitLeft,
-            SplitUp,
-            SplitAuto,
-            FocusUp,
-            FocusDown,
-            FocusLeft,
-            FocusRight,
-            NextPane,
-            PrevPane,
-            ResizeUp,
-            ResizeDown,
-            ResizeLeft,
-            ResizeRight,
-            MaximizePane,
-            ClosePane,
-            NewTab,
-            CloseTab,
-            NextTab,
-            PrevTab,
-            MoveTabLeft,
-            MoveTabRight,
-            SaveSession,
-            OpenSession,
-            NewWindow,
-            Copy,
-            Paste,
-            PastePrimary,
-            SelectAll,
-            Find,
-            FindNext,
-            FindPrev,
-            ScrollLineUp,
-            ScrollLineDown,
-            ScrollPageUp,
-            ScrollPageDown,
-            ZoomIn,
-            ZoomOut,
-            ZoomReset,
-            Fullscreen,
-            ShowSizes,
-        ];
-        v.extend((1..=10).flat_map(|n| [FocusPane(n), GoToTab(n)]));
+        let mut v: Vec<Action> = TABLE.iter().map(|r| r.0).collect();
+        v.extend((1..=10).flat_map(|n| [Action::FocusPane(n), Action::GoToTab(n)]));
         v
     }
 
     /// The inverse of `config_name`.
     pub fn from_config_name(s: &str) -> Option<Action> {
-        use Action::*;
         let numbered = |prefix: &str| -> Option<u8> {
             let n: u8 = s.strip_prefix(prefix)?.parse().ok()?;
             // Reject "03" and "+3": only the canonical spelling is a name.
@@ -362,62 +312,20 @@ impl Action {
                 .filter(|n| n.to_string() == s[prefix.len()..])
         };
         if let Some(n) = numbered("focus_pane_") {
-            return Some(FocusPane(n));
+            return Some(Action::FocusPane(n));
         }
         if let Some(n) = numbered("go_to_tab_") {
-            return Some(GoToTab(n));
+            return Some(Action::GoToTab(n));
         }
-        Action::all().into_iter().find(|a| a.config_name() == s)
+        TABLE.iter().find(|r| r.1 == s).map(|r| r.0)
     }
 
     /// Short human-readable name, as shown in the shortcuts list.
     pub fn label(&self) -> String {
-        use Action::*;
         match self {
-            SplitRight => "Split right".into(),
-            SplitDown => "Split down".into(),
-            SplitLeft => "Split left".into(),
-            SplitUp => "Split up".into(),
-            SplitAuto => "Split automatically".into(),
-            FocusUp => "Focus pane above".into(),
-            FocusDown => "Focus pane below".into(),
-            FocusLeft => "Focus pane left".into(),
-            FocusRight => "Focus pane right".into(),
-            FocusPane(n) => format!("Focus pane {n}"),
-            NextPane => "Next pane".into(),
-            PrevPane => "Previous pane".into(),
-            ResizeUp => "Resize pane up".into(),
-            ResizeDown => "Resize pane down".into(),
-            ResizeLeft => "Resize pane left".into(),
-            ResizeRight => "Resize pane right".into(),
-            MaximizePane => "Maximize pane".into(),
-            ClosePane => "Close pane".into(),
-            NewTab => "New tab".into(),
-            CloseTab => "Close tab".into(),
-            NextTab => "Next tab".into(),
-            PrevTab => "Previous tab".into(),
-            MoveTabLeft => "Move tab left".into(),
-            MoveTabRight => "Move tab right".into(),
-            GoToTab(n) => format!("Go to tab {n}"),
-            SaveSession => "Save session".into(),
-            OpenSession => "Open session".into(),
-            NewWindow => "New window".into(),
-            Copy => "Copy".into(),
-            Paste => "Paste".into(),
-            PastePrimary => "Paste selection".into(),
-            SelectAll => "Select all".into(),
-            Find => "Find".into(),
-            FindNext => "Find next".into(),
-            FindPrev => "Find previous".into(),
-            ScrollLineUp => "Scroll line up".into(),
-            ScrollLineDown => "Scroll line down".into(),
-            ScrollPageUp => "Scroll page up".into(),
-            ScrollPageDown => "Scroll page down".into(),
-            ZoomIn => "Zoom in".into(),
-            ZoomOut => "Zoom out".into(),
-            ZoomReset => "Reset zoom".into(),
-            Fullscreen => "Toggle fullscreen".into(),
-            ShowSizes => "Show pane sizes".into(),
+            Action::FocusPane(n) => format!("Focus pane {n}"),
+            Action::GoToTab(n) => format!("Go to tab {n}"),
+            _ => self.row().2.into(),
         }
     }
 }
@@ -783,76 +691,82 @@ mod tests {
         assert_eq!(Action::from_config_name("nope"), None);
     }
 
-    /// Exhaustive on purpose (no wildcard): a new `Action` variant does not compile until it
-    /// gets a slot here. Give it the next number, raise `COUNT`, and list it in `Action::all()`.
-    fn slot(a: Action) -> usize {
-        use Action::*;
-        match a {
-            SplitRight => 0,
-            SplitDown => 1,
-            SplitAuto => 2,
-            FocusUp => 3,
-            FocusDown => 4,
-            FocusLeft => 5,
-            FocusRight => 6,
-            FocusPane(_) => 7,
-            NextPane => 8,
-            PrevPane => 9,
-            ResizeUp => 10,
-            ResizeDown => 11,
-            ResizeLeft => 12,
-            ResizeRight => 13,
-            MaximizePane => 14,
-            ClosePane => 15,
-            NewTab => 16,
-            CloseTab => 17,
-            NextTab => 18,
-            PrevTab => 19,
-            MoveTabLeft => 20,
-            MoveTabRight => 21,
-            GoToTab(_) => 22,
-            SaveSession => 23,
-            OpenSession => 24,
-            NewWindow => 25,
-            Copy => 26,
-            Paste => 27,
-            PastePrimary => 28,
-            SelectAll => 29,
-            Find => 30,
-            FindNext => 31,
-            FindPrev => 32,
-            ScrollLineUp => 33,
-            ScrollLineDown => 34,
-            ScrollPageUp => 35,
-            ScrollPageDown => 36,
-            ZoomIn => 37,
-            ZoomOut => 38,
-            ZoomReset => 39,
-            Fullscreen => 40,
-            SplitLeft => 41,
-            SplitUp => 42,
-            ShowSizes => 43,
-        }
-    }
-    const COUNT: usize = 44;
-
     #[test]
-    fn all_lists_every_variant() {
+    fn all_covers_defaults_with_unique_names() {
         let all = Action::all();
-        let slots: std::collections::HashSet<usize> = all.iter().map(|a| slot(*a)).collect();
-        assert_eq!(
-            slots,
-            (0..COUNT).collect(),
-            "Action::all() misses a variant"
-        );
-        // 43 variants, the two numbered ones ten times each.
-        assert_eq!(all.len(), COUNT - 2 + 20);
+        // The plain rows, plus the two numbered families ten times each.
+        assert_eq!(all.len(), TABLE.len() + 20);
         let names: std::collections::HashSet<String> =
             all.iter().map(Action::config_name).collect();
-        assert_eq!(names.len(), all.len(), "duplicate in Action::all()");
+        assert_eq!(names.len(), all.len(), "duplicate config name");
         for (_, a) in Bindings::defaults().entries() {
-            assert!(all.contains(&a), "{a:?} missing from Action::all()");
+            assert!(all.contains(&a), "{a:?} missing from TABLE");
         }
+    }
+
+    /// A new plain variant must get a row in TABLE: this match stops compiling without it
+    /// (listing it here), and the assert finds a variant listed but missing from TABLE.
+    #[test]
+    fn every_plain_action_has_a_row() {
+        use Action::*;
+        let plain = [
+            SplitRight,
+            SplitDown,
+            SplitLeft,
+            SplitUp,
+            SplitAuto,
+            FocusUp,
+            FocusDown,
+            FocusLeft,
+            FocusRight,
+            NextPane,
+            PrevPane,
+            ResizeUp,
+            ResizeDown,
+            ResizeLeft,
+            ResizeRight,
+            MaximizePane,
+            ClosePane,
+            NewTab,
+            CloseTab,
+            NextTab,
+            PrevTab,
+            MoveTabLeft,
+            MoveTabRight,
+            SaveSession,
+            OpenSession,
+            NewWindow,
+            Copy,
+            Paste,
+            PastePrimary,
+            SelectAll,
+            Find,
+            FindNext,
+            FindPrev,
+            ScrollLineUp,
+            ScrollLineDown,
+            ScrollPageUp,
+            ScrollPageDown,
+            ZoomIn,
+            ZoomOut,
+            ZoomReset,
+            Fullscreen,
+            ShowSizes,
+        ];
+        for a in plain {
+            match a {
+                SplitRight | SplitDown | SplitLeft | SplitUp | SplitAuto | FocusUp | FocusDown
+                | FocusLeft | FocusRight | NextPane | PrevPane | ResizeUp | ResizeDown
+                | ResizeLeft | ResizeRight | MaximizePane | ClosePane | NewTab | CloseTab
+                | NextTab | PrevTab | MoveTabLeft | MoveTabRight | SaveSession | OpenSession
+                | NewWindow | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
+                | FindPrev | ScrollLineUp | ScrollLineDown | ScrollPageUp | ScrollPageDown
+                | ZoomIn | ZoomOut | ZoomReset | Fullscreen | ShowSizes => {}
+                FocusPane(_) | GoToTab(_) => unreachable!(),
+            }
+            assert!(TABLE.iter().any(|r| r.0 == a), "{a:?} has no row in TABLE");
+        }
+        assert_eq!(plain.len(), TABLE.len());
     }
 
     /// Every action has a table row "| `name` | `combo`, `combo` |" in docs/config.md whose

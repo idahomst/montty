@@ -124,27 +124,15 @@ impl GlobalConfig {
             }
             cfg.dim = v as f32;
         }
-        if let Some(r) = raw.restore_last_session {
-            cfg.restore_last_session = r;
-        }
-        if let Some(v) = raw.visual_bell {
-            cfg.visual_bell = v;
-        }
-        if let Some(v) = raw.pane_drag {
-            cfg.pane_drag = v;
-        }
-        if let Some(v) = raw.confirm_close_window {
-            cfg.confirm_close_window = v;
-        }
-        if let Some(v) = raw.attention_marks {
-            cfg.attention_marks = v;
-        }
-        if let Some(v) = raw.desktop_notifications {
-            cfg.desktop_notifications = v;
-        }
-        if let Some(v) = raw.kitty_keyboard {
-            cfg.kitty_keyboard = v;
-        }
+        cfg.restore_last_session = raw.restore_last_session.unwrap_or(cfg.restore_last_session);
+        cfg.visual_bell = raw.visual_bell.unwrap_or(cfg.visual_bell);
+        cfg.pane_drag = raw.pane_drag.unwrap_or(cfg.pane_drag);
+        cfg.confirm_close_window = raw.confirm_close_window.unwrap_or(cfg.confirm_close_window);
+        cfg.attention_marks = raw.attention_marks.unwrap_or(cfg.attention_marks);
+        cfg.desktop_notifications = raw
+            .desktop_notifications
+            .unwrap_or(cfg.desktop_notifications);
+        cfg.kitty_keyboard = raw.kitty_keyboard.unwrap_or(cfg.kitty_keyboard);
         // Validate in file order so the first error in the file is the one reported.
         let mut entries: Vec<_> = raw.keybindings.into_iter().flatten().collect();
         entries.sort_by_key(|(_, v)| v.span().start);
@@ -225,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn global_defaults_match_plan2() {
+    fn defaults_parse_from_empty_file() {
         let c = GlobalConfig::parse("", p()).unwrap();
         assert_eq!(c, GlobalConfig::default());
         assert_eq!(

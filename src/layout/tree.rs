@@ -19,16 +19,8 @@ pub enum RemoveResult {
     Empty,
 }
 
-#[derive(Clone, Debug)]
-enum Node {
-    Leaf(PaneId),
-    Split {
-        orientation: Orientation,
-        ratio: f32,
-        a: Box<Node>,
-        b: Box<Node>,
-    },
-}
+/// The tree's nodes are the same type a saved session stores.
+type Node = Shape<PaneId>;
 
 #[derive(Clone, Debug)]
 pub struct SplitTree {
@@ -226,6 +218,13 @@ fn collect_panes(n: &Node, out: &mut Vec<PaneId>) {
     }
 }
 
+fn has_pane(n: &Node, pane: PaneId) -> bool {
+    match n {
+        Node::Leaf(id) => *id == pane,
+        Node::Split { a, b, .. } => has_pane(a, pane) || has_pane(b, pane),
+    }
+}
+
 /// Path (0 = first, 1 = second) from `n` to the leaf `pane`.
 fn path_to(n: &Node, pane: PaneId, path: &mut Vec<u8>) -> bool {
     match n {
@@ -377,36 +376,20 @@ impl<L> Shape<L> {
     }
 }
 
-fn node_shape(n: &Node) -> Shape<PaneId> {
-    match n {
-        Node::Leaf(id) => Shape::Leaf(*id),
-        Node::Split {
-            orientation,
-            ratio,
-            a,
-            b,
-        } => Shape::Split {
-            orientation: *orientation,
-            ratio: *ratio,
-            a: Box::new(node_shape(a)),
-            b: Box::new(node_shape(b)),
-        },
-    }
-}
-
-fn shape_node(s: Shape<PaneId>) -> Node {
+/// Clamps every split ratio to 0.0..=1.0 (a session file is untrusted).
+fn clamp_ratios(s: Node) -> Node {
     match s {
-        Shape::Leaf(id) => Node::Leaf(id),
+        Shape::Leaf(id) => Shape::Leaf(id),
         Shape::Split {
             orientation,
             ratio,
             a,
             b,
-        } => Node::Split {
+        } => Shape::Split {
             orientation,
             ratio: ratio.clamp(0.0, 1.0),
-            a: Box::new(shape_node(*a)),
-            b: Box::new(shape_node(*b)),
+            a: Box::new(clamp_ratios(*a)),
+            b: Box::new(clamp_ratios(*b)),
         },
     }
 }
@@ -421,13 +404,13 @@ impl SplitTree {
     }
 
     pub fn shape(&self) -> Shape<PaneId> {
-        node_shape(&self.root)
+        self.root.clone()
     }
 
     /// Not maximized, default minimum extent; ratios clamped to 0.0..=1.0.
     pub fn from_shape(s: Shape<PaneId>) -> Self {
         Self {
-            root: shape_node(s),
+            root: clamp_ratios(s),
             maximized: None,
             min: (MIN_PANE_PX, MIN_PANE_PX),
         }
@@ -499,12 +482,16 @@ impl SplitTree {
     /// Trade the slots of `a` and `b`: each takes the other's place and size.
     /// False, and nothing changes, when `a == b` or either is missing.
     pub fn swap(&mut self, a: PaneId, b: PaneId) -> bool {
-        let panes = self.panes();
-        if a == b || !panes.contains(&a) || !panes.contains(&b) {
+        if a == b || !self.contains(a) || !self.contains(b) {
             return false;
         }
         swap_leaves(&mut self.root, a, b);
         true
+    }
+
+    /// Like `panes().contains(..)` without the allocation (it runs on every PTY wakeup).
+    pub fn contains(&self, pane: PaneId) -> bool {
+        has_pane(&self.root, pane)
     }
 
     pub fn panes(&self) -> Vec<PaneId> {
@@ -527,11 +514,10 @@ impl SplitTree {
     }
 
     pub fn dividers(&self, area: Rect) -> Vec<Divider> {
-        let mut out = Vec::new();
-        if self.maximized.is_none() {
-            collect_dividers(&self.root, area, self.min, &mut Vec::new(), &mut out);
+        if self.maximized.is_some() {
+            return Vec::new();
         }
-        out
+        self.dividers_all(area)
     }
 
     pub fn neighbor(&self, from: PaneId, dir: Direction, area: Rect) -> Option<PaneId> {
@@ -636,9 +622,11 @@ impl SplitTree {
             return false;
         }
         // Nearest ancestor (longest proper prefix) with the matching orientation.
+        // Nothing changes until the one set_divider below, which returns.
+        let all = self.dividers_all(area);
         for len in (0..path.len()).rev() {
             let id = DividerId(path[..len].to_vec());
-            let Some(div) = self.dividers_all(area).into_iter().find(|d| d.id == id) else {
+            let Some(div) = all.iter().find(|d| d.id == id) else {
                 continue;
             };
             if div.orientation != want {
@@ -664,7 +652,7 @@ impl SplitTree {
     pub fn toggle_maximize(&mut self, pane: PaneId) {
         self.maximized = if self.maximized == Some(pane) {
             None
-        } else if self.panes().contains(&pane) {
+        } else if self.contains(pane) {
             Some(pane)
         } else {
             self.maximized
@@ -846,6 +834,14 @@ mod tests {
                 )
             ]
         );
+    }
+    #[test]
+    fn contains_finds_every_leaf_only() {
+        let mut t = SplitTree::new(1);
+        t.split(1, Orientation::Horizontal, 2);
+        t.split(2, Orientation::Vertical, 3);
+        assert!([1, 2, 3].iter().all(|&p| t.contains(p)));
+        assert!(!t.contains(4));
     }
     #[test]
     fn panes_depth_first_order() {
@@ -1118,5 +1114,78 @@ mod tests {
         assert_eq!(s.leaves(), [&1, &2, &3, &4]);
         let m = s.map(&mut |id| id * 10);
         assert_eq!(m.leaves(), [&10, &20, &30, &40]);
+    }
+
+    fn split<L>(ratio: f32, a: Shape<L>, b: Shape<L>) -> Shape<L> {
+        Shape::Split {
+            orientation: Orientation::Horizontal,
+            ratio,
+            a: Box::new(a),
+            b: Box::new(b),
+        }
+    }
+
+    #[test]
+    fn shape_map_changes_payload_and_keeps_structure() {
+        let s = split(
+            0.3,
+            Shape::Leaf(1),
+            split(0.7, Shape::Leaf(2), Shape::Leaf(3)),
+        );
+        let mut seen = Vec::new();
+        let m = s.map(&mut |n| {
+            seen.push(n);
+            format!("p{n}")
+        });
+        // Visited depth-first, `a` before `b`.
+        assert_eq!(seen, [1, 2, 3]);
+        let expected = split(
+            0.3,
+            Shape::Leaf("p1".to_string()),
+            split(
+                0.7,
+                Shape::Leaf("p2".to_string()),
+                Shape::Leaf("p3".to_string()),
+            ),
+        );
+        assert_eq!(m, expected);
+    }
+
+    #[test]
+    fn shape_leaves_of_a_single_leaf_and_a_nested_split() {
+        assert_eq!(Shape::Leaf('x').leaves(), [&'x']);
+        let s = split(
+            0.5,
+            split(0.5, Shape::Leaf('a'), Shape::Leaf('b')),
+            Shape::Leaf('c'),
+        );
+        assert_eq!(s.leaves(), [&'a', &'b', &'c']);
+    }
+
+    #[test]
+    fn from_shape_clamps_out_of_range_ratios() {
+        let t = SplitTree::from_shape(split(
+            2.0,
+            split(-1.0, Shape::Leaf(1), Shape::Leaf(2)),
+            Shape::Leaf(3),
+        ));
+        let Shape::Split { ratio, a, .. } = t.shape() else {
+            panic!("root is a split");
+        };
+        assert_eq!(ratio, 1.0);
+        let Shape::Split { ratio, .. } = *a else {
+            panic!("child is a split");
+        };
+        assert_eq!(ratio, 0.0);
+    }
+
+    #[test]
+    fn from_shape_nan_ratio_lays_out_without_panic() {
+        let t = SplitTree::from_shape(split(f32::NAN, Shape::Leaf(1), Shape::Leaf(2)));
+        let l = t.layout(AREA);
+        assert_eq!(l.len(), 2);
+        // NaN saturates to 0 px, so the first pane gets its minimum.
+        assert_eq!(l[0].1.w, t.min_extent().0);
+        assert!(t.dividers(AREA).len() == 1);
     }
 }

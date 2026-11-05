@@ -1,9 +1,9 @@
 //! Turning a session document into split trees: what a loaded window is built from.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use montty::layout::{Orientation, Shape, SplitTree};
-use montty::session::{LeafDoc, SessionDoc, TabDoc, parse, read_session, to_json};
+use montty::session::{LeafDoc, SessionDoc, TabDoc, parse, to_json};
 
 fn leaf(profile: &str) -> Shape<LeafDoc> {
     Shape::Leaf(LeafDoc {
@@ -75,27 +75,4 @@ fn trees_keep_ratios_focus_titles_and_active_tab() {
     assert_eq!(doc.tabs[0].title.as_deref(), Some("build"));
     assert_eq!(doc.tabs[1].title, None);
     assert_eq!(trees[1].0.panes(), [104]);
-}
-
-#[test]
-fn read_session_reports_why_it_cannot_open() {
-    let dir: PathBuf =
-        std::env::temp_dir().join(format!("montty-readsession-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("sessions")).unwrap();
-    std::fs::write(dir.join("sessions/ok.json"), to_json(&doc())).unwrap();
-    std::fs::write(dir.join("sessions/bad.json"), "{\n \"version\": 2 }").unwrap();
-    assert_eq!(read_session(Some(&dir), "ok").unwrap(), doc());
-    let e = read_session(Some(&dir), "bad").unwrap_err();
-    assert!(e.starts_with("sessions/bad.json:"), "{e}");
-    let e = read_session(Some(&dir), "missing").unwrap_err();
-    assert!(e.starts_with("sessions/missing.json: "), "{e}");
-    let e = read_session(Some(&dir), "a/b").unwrap_err();
-    assert!(e.starts_with("invalid session name: "), "{e}");
-    assert!(
-        read_session(None, "ok")
-            .unwrap_err()
-            .contains("no config directory")
-    );
-    let _ = std::fs::remove_dir_all(&dir);
 }

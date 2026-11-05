@@ -1,3 +1,5 @@
+mod common;
+
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
@@ -6,7 +8,8 @@ use alacritty_terminal::event::{Event, WindowSize};
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::TermMode;
-use montty::term::pane::{Pane, PaneOptions, UserEvent};
+use montty::events::UserEvent;
+use montty::term::pane::{Pane, PaneOptions};
 
 fn size(cols: u16, lines: u16) -> WindowSize {
     WindowSize {
@@ -282,8 +285,8 @@ fn pane_cwd_follows_shell() {
 
 #[test]
 fn cwd_of_deleted_dir_is_none() {
-    let dir = std::env::temp_dir().join(format!("montty-cwd-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let tmp = common::TempDir::new("cwd");
+    let dir = tmp.to_path_buf();
     let (tx, _rx) = mpsc::channel();
     let cmd = format!("cd {} && exec sleep 5", dir.display());
     let pane = Pane::spawn(21, &opts(&["sh", "-c", &cmd]), size(20, 5), Arc::new(tx)).unwrap();

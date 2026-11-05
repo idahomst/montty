@@ -2,38 +2,39 @@
 
 ## From a release package
 
-Packages are attached to each [GitHub release](https://github.com/idahomst/montty/releases). They are for x86_64.
+Packages are attached to each [GitHub release](https://github.com/idahomst/montty/releases/latest). They are for x86_64;
+`<version>` below is the release's version.
 
 **Debian, Ubuntu and derivatives**
 
 ```bash
-sudo apt install ./montty_0.2.2_amd64.deb
+sudo apt install ./montty_<version>_amd64.deb
 ```
 
 **Arch, CachyOS and derivatives**
 
 ```bash
-sudo pacman -U montty-0.2.2-1-x86_64.pkg.tar.zst
+sudo pacman -U montty-<version>-1-x86_64.pkg.tar.zst
 ```
 
 **Tarball (any Linux)**
 
 ```bash
-tar xzf montty-0.2.2-x86_64-linux.tar.gz
-cd montty-0.2.2
+tar xzf montty-<version>-x86_64-linux.tar.gz
+cd montty-<version>
 mkdir -p ~/.local/bin ~/.local/share/icons ~/.local/share/applications
 cp bin/montty ~/.local/bin/
 cp -r assets/icon/hicolor ~/.local/share/icons/
 cp assets/montty.desktop ~/.local/share/applications/
 ```
 
-The tarball holds `bin/montty`, `assets/icon/hicolor`, `assets/montty.desktop`, `LICENSE`, `README.md` and
-`docs/install.md`. For a system-wide install copy the same files under `/usr/local/bin`, `/usr/local/share/icons` and
+The tarball holds `bin/montty`, `assets/icon/hicolor`, `assets/montty.desktop`, `LICENSE`, `LICENSE-SCHEMES`,
+`README.md`, `docs/install.md` and `docs/config.md` (the configuration reference). For a system-wide install copy the same files under `/usr/local/bin`, `/usr/local/share/icons` and
 `/usr/local/share/applications` instead.
 
 ## From a source build
 
-Needs Rust 1.85 or newer. From the repo root, after `cargo build --release`:
+Needs Rust 1.88 or newer. From the repo root, after `cargo build --release`:
 
 ```bash
 mkdir -p ~/.local/bin ~/.local/share/icons ~/.local/share/applications

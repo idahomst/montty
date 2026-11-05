@@ -4,6 +4,7 @@
 
 use super::text::{display_width, sanitize, truncate};
 use super::topbar::BarMetrics;
+use crate::input::bindings::Action;
 use crate::layout::Rect;
 use winit::keyboard::{Key, NamedKey};
 
@@ -72,30 +73,35 @@ pub fn profile_menu_items(
 ) -> Vec<MenuItem> {
     let cols = max_cols.min(MAX_NAME_COLS);
     let name_cols = cols.saturating_sub(display_width(CHECK));
-    let shown = match stems.len() > max_rows {
+    // The `… N more` row is indented like the names after a mark.
+    capped_rows(stems, max_rows, "  ", |i, (stem, name)| {
+        let mark = if stem == current { CHECK } else { "  " };
+        let label = format!("{mark}{}", truncate(&menu_name(name, stem), name_cols));
+        MenuItem::new(label, MenuAction::SetProfile(i))
+    })
+}
+
+/// A row per entry of `all` (built by `row` from its index); with more than `max_rows`,
+/// the first `max_rows - 1` and a disabled `<indent>… N more` row.
+fn capped_rows<T>(
+    all: &[T],
+    max_rows: usize,
+    indent: &str,
+    row: impl Fn(usize, &T) -> MenuItem,
+) -> Vec<MenuItem> {
+    let shown = match all.len() > max_rows {
         true => max_rows.saturating_sub(1),
-        false => stems.len(),
+        false => all.len(),
     };
-    let mut items: Vec<MenuItem> = stems
+    let mut items: Vec<MenuItem> = all
         .iter()
-        .enumerate()
         .take(shown)
-        .map(|(i, (stem, name))| MenuItem {
-            label: format!(
-                "{}{}",
-                if stem == current { CHECK } else { "  " },
-                truncate(&menu_name(name, stem), name_cols)
-            ),
-            shortcut: None,
-            action: MenuAction::SetProfile(i),
-        })
+        .enumerate()
+        .map(|(i, t)| row(i, t))
         .collect();
-    if shown < stems.len() {
-        items.push(MenuItem {
-            label: format!("  … {} more", stems.len() - shown),
-            shortcut: None,
-            action: MenuAction::Disabled,
-        });
+    if shown < all.len() {
+        let more = format!("{indent}… {} more", all.len() - shown);
+        items.push(MenuItem::new(more, MenuAction::Disabled));
     }
     items
 }
@@ -106,14 +112,9 @@ pub const SESSIONS_TITLE: &str = "Sessions";
 
 /// `title` as a dim row and a separator, above `items`.
 fn titled(title: &str, items: Vec<MenuItem>) -> Vec<MenuItem> {
-    let row = |label: &str, action| MenuItem {
-        label: label.into(),
-        shortcut: None,
-        action,
-    };
     let mut out = vec![
-        row(title, MenuAction::Disabled),
-        row("", MenuAction::Separator),
+        MenuItem::new(title, MenuAction::Disabled),
+        MenuItem::new("", MenuAction::Separator),
     ];
     out.extend(items);
     out
@@ -143,19 +144,11 @@ pub fn profile_menu(
                 &menu_name(name, stem),
                 max_cols.saturating_sub(frame).min(MAX_NAME_COLS),
             );
-            MenuItem {
-                label: format!("Edit profile \"{name}\""),
-                shortcut: None,
-                action: MenuAction::EditProfile,
-            }
+            MenuItem::new(format!("Edit profile \"{name}\""), MenuAction::EditProfile)
         });
     let mut tail: Vec<MenuItem> = edit.into_iter().collect();
     if files {
-        tail.push(MenuItem {
-            label: "New profile…".into(),
-            shortcut: None,
-            action: MenuAction::NewProfile,
-        });
+        tail.push(MenuItem::new("New profile…", MenuAction::NewProfile));
     }
     // The tail's separator and the title's together take less than a row.
     let reserved = TITLE_ROWS + tail.len();
@@ -169,11 +162,7 @@ pub fn profile_menu(
         ),
     };
     if !items.is_empty() && !tail.is_empty() {
-        items.push(MenuItem {
-            label: String::new(),
-            shortcut: None,
-            action: MenuAction::Separator,
-        });
+        items.push(MenuItem::new("", MenuAction::Separator));
     }
     items.extend(tail);
     titled(PROFILES_TITLE, items)
@@ -194,35 +183,15 @@ pub fn session_menu_items(names: &[String], max_rows: usize, max_cols: usize) ->
 
 fn session_rows(names: &[String], max_rows: usize, max_cols: usize) -> Vec<MenuItem> {
     if names.is_empty() {
-        return vec![MenuItem {
-            label: NO_SESSIONS.into(),
-            shortcut: None,
-            action: MenuAction::Disabled,
-        }];
+        return vec![MenuItem::new(NO_SESSIONS, MenuAction::Disabled)];
     }
     let cols = max_cols.min(MAX_NAME_COLS);
-    let shown = match names.len() > max_rows {
-        true => max_rows.saturating_sub(1),
-        false => names.len(),
-    };
-    let mut items: Vec<MenuItem> = names
-        .iter()
-        .enumerate()
-        .take(shown)
-        .map(|(i, name)| MenuItem {
-            label: truncate(&menu_name(name, name), cols),
-            shortcut: None,
-            action: MenuAction::OpenSession(i),
-        })
-        .collect();
-    if shown < names.len() {
-        items.push(MenuItem {
-            label: format!("… {} more", names.len() - shown),
-            shortcut: None,
-            action: MenuAction::Disabled,
-        });
-    }
-    items
+    capped_rows(names, max_rows, "", |i, name| {
+        MenuItem::new(
+            truncate(&menu_name(name, name), cols),
+            MenuAction::OpenSession(i),
+        )
+    })
 }
 
 /// A separator row's height: a third of a row.
@@ -241,6 +210,32 @@ pub struct MenuItem {
     pub label: String,
     pub shortcut: Option<String>,
     pub action: MenuAction,
+}
+
+impl MenuItem {
+    /// A row without a shortcut.
+    pub fn new(label: impl Into<String>, action: MenuAction) -> MenuItem {
+        MenuItem {
+            label: label.into(),
+            shortcut: None,
+            action,
+        }
+    }
+}
+
+impl MenuAction {
+    /// The key-binding action a row runs, for rows that run one.
+    pub fn as_action(self) -> Option<Action> {
+        Some(match self {
+            MenuAction::NewTab => Action::NewTab,
+            MenuAction::NewWindow => Action::NewWindow,
+            MenuAction::SplitRight => Action::SplitRight,
+            MenuAction::SplitDown => Action::SplitDown,
+            MenuAction::SplitLeft => Action::SplitLeft,
+            MenuAction::SplitUp => Action::SplitUp,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -387,12 +382,16 @@ impl Menu {
 mod tests {
     use super::*;
 
-    fn bm() -> BarMetrics {
-        BarMetrics {
-            height: 28,
-            pad: 6,
-            cell_w: 8,
-            cell_h: 16,
+    #[test]
+    fn only_tab_window_and_split_rows_run_a_binding_action() {
+        assert_eq!(MenuAction::NewTab.as_action(), Some(Action::NewTab));
+        assert_eq!(MenuAction::SplitUp.as_action(), Some(Action::SplitUp));
+        for a in [
+            MenuAction::Copy,
+            MenuAction::SetProfile(0),
+            MenuAction::Disabled,
+        ] {
+            assert_eq!(a.as_action(), None);
         }
     }
 
@@ -447,7 +446,7 @@ mod tests {
     #[test]
     fn menu_click_inside_and_outside() {
         let m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let rs = m.item_rects(&bm);
         assert_eq!(rs.len(), 3);
         let r = rs[1];
@@ -463,7 +462,7 @@ mod tests {
     #[test]
     fn menu_hover_selects() {
         let mut m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let r = m.item_rects(&bm)[2];
         m.hover(r.x + 1, r.y + 1, &bm);
         assert_eq!(m.selected(), Some(2));
@@ -478,7 +477,7 @@ mod tests {
     #[test]
     fn menu_aligned_to_anchor() {
         let m = menu();
-        let bm = bm();
+        let bm = BarMetrics::test();
         let r = m.rect(&bm);
         assert_eq!(r.x + r.w, 400);
         assert_eq!(r.y, 28);
@@ -507,7 +506,7 @@ mod tests {
             100,
             0,
         );
-        assert_eq!(m.rect(&bm()).w, 12 * 8 + 12);
+        assert_eq!(m.rect(&BarMetrics::test()).w, 12 * 8 + 12);
     }
 
     #[test]
@@ -619,11 +618,11 @@ mod tests {
         assert_eq!(m.selected(), Some(0));
         m.key(&up());
         assert_eq!(m.selected(), Some(0));
-        let rows = m.item_rects(&bm());
-        m.hover(rows[1].x + 1, rows[1].y + 1, &bm());
+        let rows = m.item_rects(&BarMetrics::test());
+        m.hover(rows[1].x + 1, rows[1].y + 1, &BarMetrics::test());
         assert_eq!(m.selected(), Some(0));
         assert_eq!(
-            m.click(rows[1].x + 1, rows[1].y + 1, &bm()),
+            m.click(rows[1].x + 1, rows[1].y + 1, &BarMetrics::test()),
             MenuOutcome::None
         );
     }
@@ -644,7 +643,7 @@ mod tests {
             400,
             28,
         );
-        let bm = bm();
+        let bm = BarMetrics::test();
         let rows = m.item_rects(&bm);
         let sep = separator_height(&bm);
         assert!(sep > 0 && sep < bm.height);

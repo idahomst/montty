@@ -5,8 +5,9 @@ Guide for AI agents working on montty (Claude Code reads it through `CLAUDE.md`)
 ## What montty is
 
 A tiling terminal emulator inspired by Tilix, in Rust: winit + glutin + glow (OpenGL 3.3 / GLES 3) for the window and
-drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS and
-Windows are not supported yet. Priority order: responsiveness > simplicity > features. Rust edition 2024.
+drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS builds
+and passes the tests (CI runs both), but is not a supported app yet; Windows is not supported. Priority order:
+responsiveness > simplicity > features. Rust edition 2024.
 
 ## Commands
 
@@ -21,13 +22,16 @@ cargo fmt --check
 
 Top-level modules (`src/`):
 
+- `lib.rs`: declares the modules, so the integration tests in `tests/` can use them.
 - `main.rs`: entry point. `--decode-image` runs the decoder helper with no event loop; otherwise parse args and run `App`.
 - `cli.rs`: command-line parsing (`--profile`, `--session`, `-e`, `--help`).
 - `app.rs`: the winit `ApplicationHandler`; owns all windows, routes events, computes the event loop's control flow.
 - `windows.rs`: the collection of windows (`Windows<W>`) and the requests a window makes of the app (`AppRequest`: new window, open session).
 - `window/`: one OS window (see below).
 - `layout/`: pure data. `geom.rs` (rects, constants) and `tree.rs` (binary split tree: split, close, swap, resize, hit-test).
-- `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread, user events),
+- `events.rs`: `UserEvent` (what the PTY readers, config watcher and image decoders post to the UI thread) and
+  `EventSink`.
+- `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread),
   `snapshot.rs` (copy of the visible cells taken under a brief lock), `colors.rs`, `links.rs`, `grid_point.rs`.
   Signals: `osc_scan.rs` (cheap scanner for OSC 7501 / 9 / 777 / 133 in the PTY byte stream, which alacritty's parser
   drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner and sends each hit as `UserEvent::Signal`),
@@ -36,15 +40,16 @@ Top-level modules (`src/`):
   `rects.rs` (solid rects for chrome and cursor), `shapes.rs` (antialiased strokes for icons: round-capped lines,
   rounded-rect outlines, rings), `image.rs` (background image decode, fit math, quad), `shaders/`.
 - `font/`: font discovery (fontdb), rasterization (swash), fallback, `fc-match` lookup of `monospace`.
-- `ui/`: pure chrome state and geometry, no GL: top bar, menu, panel, confirm, find bar, text field, toast, overlay,
-  scrollbar, icons (stroke geometry), theme, text helpers.
+- `ui/`: pure chrome state and geometry, no GL: `topbar.rs`, `menu.rs`, `panel.rs`, `confirm.rs`, `findbar.rs`,
+  `textfield.rs`, `toast.rs`, `overlay.rs`, `scrollbar.rs`, `icons.rs` (stroke geometry), `theme.rs`, `text.rs`.
 - `input/`: key to xterm bytes (`keys.rs`), kitty keyboard protocol encoding (`kitty.rs`), key-binding parsing and the
   action table (`bindings.rs`), mouse reporting, paste.
 - `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).
 - `config/`: `global.rs` (`config.toml`), `profile.rs`, `scheme.rs` (Tilix JSON, built-ins from `assets/schemes`),
-  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify watcher + debounce).
+  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify / FSEvents watcher + debounce).
 - `session.rs`: saved-session JSON format, names, atomic writes.
-- `clipboard.rs`: CLIPBOARD and PRIMARY (copypasta, X11 or Wayland, read with a timeout off the UI thread).
+- `clipboard.rs`: CLIPBOARD and PRIMARY (copypasta, X11 or Wayland, read with a timeout off the UI thread; on macOS
+  the pasteboard, with PRIMARY in memory).
 - `decoder.rs`: background image decoding in a child process (`montty --decode-image <path> <w> <h>`); release builds
   abort on panic, so a decoder crash or hang must only kill the child.
 - `frame.rs`: refresh-capped frame scheduler. `device_events.rs`: turns off winit's raw device events.
@@ -59,7 +64,8 @@ Top-level modules (`src/`):
 - `tabs.rs`: pure tab collection; each tab owns a split tree.
 - `bar.rs`: top bar drawing and clicks. `mouse.rs`: mouse routing (modal, toast, bar, find, overlay, dividers, selection).
 - `selection.rs`: mouse selection. `links.rs`: Ctrl+click links. `find.rs`: scrollback search and find bar glue.
-- `modal.rs`: menus, panels, prompts, close confirmation (at most one open; it takes all input).
+- `modal/`: menus, panels, prompts, close confirmation (at most one open; it takes all input). `mod.rs` opens and
+  routes them, `content.rs` builds what they hold, `paint.rs` draws them.
 - `pane_drag.rs`: drag-to-swap state machine. `sizes.rs`: size labels shown while resizing. `blink.rs`: cursor blink.
 - `images.rs`: background image textures shared per image. `sessions.rs`: saving sessions and the session list.
 - `attention.rs`: pure state of which panes need the user (blocked / error / done) and how urgently; no timers.
@@ -91,7 +97,12 @@ Key flows:
 
 - Match the surrounding code's comment density and idiom. Comments explain why, not what.
 - Keep logic pure and testable next to the code, with `#[cfg(test)]` tests; keep GL and window code thin. Integration
-  tests are in `tests/`. Tests must never touch the real `~/.config/montty` (use a temp dir).
+  tests are in `tests/`. Tests must never touch the real `~/.config/montty`: use a temp dir (`testutil::TempDir` in
+  unit tests, `tests/common` in integration tests).
+- X11/Wayland-only code sits behind `#[cfg(not(target_os = "macos"))]` (and the macOS side behind
+  `cfg(target_os = "macos")`), kept next to the code it replaces; per-OS crate features are in `Cargo.toml`'s
+  target tables. Check both: `cargo clippy --all-targets --target x86_64-unknown-linux-gnu` type-checks Linux from a
+  Mac.
 - No new crates without a strong reason; the dependency tree is deliberately small and each direct dependency is
   commented in `Cargo.toml`. Prefer pure-Rust crates.
 - Performance gates in `docs/bench.md` (`cat` throughput, key latency, idle CPU 0 %, RSS, binary size) must not
@@ -112,6 +123,7 @@ Key flows:
   ```
   `xtest.py --help` lists the commands (keys, typing, clicks, drags, wheel, resize). There is no window manager on
   `:5`, so run `focus` before sending keys.
+- `scripts/bench.sh latency` drives `$DISPLAY` with XTest: run it with `DISPLAY=:5` (Xephyr), not on the live display.
 - The real `~/.config/montty` must never be read or written; the helper uses its own temp config.
 - Kill test processes by PID, never by name.
 
@@ -121,7 +133,10 @@ Key flows:
   (`packaging/deb/build-deb.sh <version> <binary> <out-dir>`), a tarball, and an Arch package (`packaging/arch/PKGBUILD`
   in an Arch container), and attaches them to a GitHub release.
 - `assets/`: `montty.desktop`, `icon/hicolor/<N>x<N>/apps/montty.png`, and the built-in Tilix schemes in `schemes/`.
-- Keep the version in `Cargo.toml` and `packaging/arch/PKGBUILD` in step with the tag.
+- Keep the version in `Cargo.toml` and `packaging/arch/PKGBUILD` in step with the tag; the release workflow fails
+  otherwise.
+- Pushes to `main` and pull requests run `.github/workflows/ci.yml`: `cargo fmt --check`, clippy with `-D warnings`,
+  and the tests.
 
 ## Docs
 

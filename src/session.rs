@@ -1,4 +1,4 @@
-//! Saved sessions: the JSON file format (spec §9), session names and atomic writes.
+//! Saved sessions: the JSON file format, session names and atomic writes.
 //! Paths are relative to the config directory.
 
 use std::fs;
@@ -8,13 +8,11 @@ use std::path::{Path, PathBuf};
 use serde::de::{self, Deserializer};
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::config::ConfigError;
+use crate::config::{ConfigError, check_file_stem};
 use crate::layout::{Orientation, Shape};
 
 /// The name reserved for the autosave; only `last_file` reaches it.
 pub const LAST: &str = "_last";
-
-const MAX_NAME_CHARS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct LeafDoc {
@@ -292,24 +290,11 @@ pub fn to_json(doc: &SessionDoc) -> String {
 // ---- names and files ----
 
 fn check_name(name: &str) -> Result<(), String> {
-    let n = name.chars().count();
-    if n == 0 {
-        Err("the name is empty".into())
-    } else if n > MAX_NAME_CHARS {
-        Err(format!(
-            "the name is longer than {MAX_NAME_CHARS} characters"
-        ))
-    } else if name.contains('/') {
-        Err("the name can't contain '/'".into())
-    } else if name.chars().any(char::is_control) {
-        Err("the name can't contain control characters".into())
-    } else if name.starts_with('.') {
-        Err("the name can't start with '.'".into())
-    } else if name == LAST {
-        Err(format!("'{LAST}' is reserved for the automatic save"))
-    } else {
-        Ok(())
+    check_file_stem(name, &['.'])?;
+    if name == LAST {
+        return Err(format!("'{LAST}' is reserved for the automatic save"));
     }
+    Ok(())
 }
 
 /// `sessions/<name>.json` relative to the config dir, or why the name is invalid.
@@ -391,6 +376,7 @@ pub fn write_atomic(dir: &Path, rel: &Path, contents: &str) -> io::Result<()> {
 mod tests {
     use super::*;
     use crate::layout::{Orientation, Shape};
+    use crate::testutil::TempDir;
 
     const EXAMPLE: &str = r#"{
   "version": 1,
@@ -410,13 +396,6 @@ mod tests {
 
     fn err(src: &str) -> ConfigError {
         parse(src, file()).unwrap_err()
-    }
-
-    fn temp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("montty-session-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
-        std::fs::create_dir_all(&d).unwrap();
-        d
     }
 
     #[test]
@@ -636,7 +615,7 @@ mod tests {
 
     #[test]
     fn list_skips_last_and_non_json() {
-        let d = temp("list");
+        let d = TempDir::new("session-list");
         assert!(list_sessions(&d).is_empty());
         let s = d.join("sessions");
         std::fs::create_dir_all(&s).unwrap();
@@ -653,12 +632,11 @@ mod tests {
         }
         std::fs::create_dir(s.join("dir.json")).unwrap();
         assert_eq!(list_sessions(&d), ["a", "b", "práce"]);
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn listing_follows_symlinked_files() {
-        let d = temp("symlink");
+        let d = TempDir::new("session-symlink");
         let s = d.join("sessions");
         std::fs::create_dir_all(&s).unwrap();
         let store = d.join("dotfiles");
@@ -669,12 +647,11 @@ mod tests {
         std::os::unix::fs::symlink(store.join("gone.json"), s.join("dangling.json")).unwrap();
         std::os::unix::fs::symlink(store.join("adir"), s.join("dirlink.json")).unwrap();
         assert_eq!(list_sessions(&d), ["work"]);
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn write_atomic_replaces_whole_file() {
-        let d = temp("atomic");
+        let d = TempDir::new("session-atomic");
         let rel = session_file("w").unwrap();
         write_atomic(&d, &rel, &"x".repeat(1000)).unwrap();
         write_atomic(&d, &rel, "short").unwrap();
@@ -684,6 +661,47 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         assert_eq!(names, ["w.json"]);
-        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    fn store_with(files: &[(&str, &str)]) -> TempDir {
+        let d = TempDir::new("session-read");
+        for (name, body) in files {
+            d.write(&format!("sessions/{name}.json"), body);
+        }
+        d
+    }
+
+    #[test]
+    fn read_session_reads_a_saved_file() {
+        let doc = parse(EXAMPLE, file()).unwrap();
+        let d = store_with(&[("ok", &to_json(&doc))]);
+        assert_eq!(read_session(Some(&d), "ok").unwrap(), doc);
+    }
+
+    #[test]
+    fn read_session_names_the_file_that_has_errors() {
+        let d = store_with(&[("bad", "{\n \"version\": 2 }")]);
+        let e = read_session(Some(&d), "bad").unwrap_err();
+        assert!(e.starts_with("sessions/bad.json:"), "{e}");
+    }
+
+    #[test]
+    fn read_session_reports_a_missing_file() {
+        let d = store_with(&[]);
+        let e = read_session(Some(&d), "missing").unwrap_err();
+        assert!(e.starts_with("sessions/missing.json: "), "{e}");
+    }
+
+    #[test]
+    fn read_session_rejects_an_invalid_name() {
+        let d = store_with(&[]);
+        let e = read_session(Some(&d), "a/b").unwrap_err();
+        assert!(e.starts_with("invalid session name: "), "{e}");
+    }
+
+    #[test]
+    fn read_session_without_a_config_dir_says_so() {
+        let e = read_session(None, "ok").unwrap_err();
+        assert!(e.contains("no config directory"), "{e}");
     }
 }

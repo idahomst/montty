@@ -10,7 +10,7 @@ use polling::{Event, PollMode, Poller};
 
 use super::PaneId;
 use super::osc_scan::{OscScanner, Signal};
-use super::pane::{EventSink, UserEvent};
+use crate::events::{EventSink, UserEvent};
 
 /// Reads from `R` unchanged; every successful read is also fed to the scanner and each
 /// signal found is sent to the UI as a `UserEvent::Signal`.

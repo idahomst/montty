@@ -7,41 +7,57 @@ use alacritty_terminal::index::{Column, Line, Point, Side};
 use crate::layout::Rect;
 use crate::ui::DOUBLE_CLICK;
 
-/// The cell under window pixel (x, y) and the half of it the pixel is in.
-/// `content` is the pane rect less its padding; x and y are clamped into the
-/// grid. `Point.line` counts from the viewport top less `display_offset`
-/// (negative = history).
-#[allow(clippy::too_many_arguments)]
-pub fn point_at(
-    content: Rect,
-    cell_w: u32,
-    cell_h: u32,
-    cols: usize,
-    lines: usize,
-    display_offset: usize,
-    x: i32,
-    y: i32,
-) -> (Point, Side) {
-    let (cw, ch) = (i64::from(cell_w.max(1)), i64::from(cell_h.max(1)));
-    let dx = i64::from(x) - i64::from(content.x);
-    let dy = i64::from(y) - i64::from(content.y);
-    let last_col = cols.saturating_sub(1) as i64;
-    let last_row = lines.saturating_sub(1) as i64;
-    let col = dx.div_euclid(cw).clamp(0, last_col);
-    let row = dy.div_euclid(ch).clamp(0, last_row);
-    // Outside the grid the side is the edge's: Left before it, Right past it.
-    let side = if dx < 0 || (dx < cols as i64 * cw && dx.rem_euclid(cw) * 2 < cw) {
-        Side::Left
-    } else {
-        Side::Right
-    };
-    (
-        Point::new(
-            Line(row as i32 - display_offset as i32),
-            Column(col as usize),
-        ),
-        side,
-    )
+/// A pane's grid on screen: `content` is the pane rect less its padding, cells are
+/// `cell_w` × `cell_h` px, and the grid is `cols` × `lines` cells.
+#[derive(Clone, Copy, Debug)]
+pub struct GridGeom {
+    pub content: Rect,
+    pub cell_w: u32,
+    pub cell_h: u32,
+    pub cols: usize,
+    pub lines: usize,
+}
+
+impl GridGeom {
+    /// The cell under window pixel (x, y) and the half of it the pixel is in. x and y are
+    /// clamped into the grid. `Point.line` counts from the viewport top less
+    /// `display_offset` (negative = history).
+    pub fn point_at(&self, display_offset: usize, x: i32, y: i32) -> (Point, Side) {
+        let (cols, lines) = (self.cols, self.lines);
+        let (cw, ch) = (i64::from(self.cell_w.max(1)), i64::from(self.cell_h.max(1)));
+        let dx = i64::from(x) - i64::from(self.content.x);
+        let dy = i64::from(y) - i64::from(self.content.y);
+        let last_col = cols.saturating_sub(1) as i64;
+        let last_row = lines.saturating_sub(1) as i64;
+        let col = dx.div_euclid(cw).clamp(0, last_col);
+        let row = dy.div_euclid(ch).clamp(0, last_row);
+        // Outside the grid the side is the edge's: Left before it, Right past it.
+        let side = if dx < 0 || (dx < cols as i64 * cw && dx.rem_euclid(cw) * 2 < cw) {
+            Side::Left
+        } else {
+            Side::Right
+        };
+        (
+            Point::new(
+                Line(row as i32 - display_offset as i32),
+                Column(col as usize),
+            ),
+            side,
+        )
+    }
+
+    /// Whether (x, y) lies on a cell: not on the padding or the strip left over below and
+    /// right of the last whole cell.
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        let (dx, dy) = (i64::from(x - self.content.x), i64::from(y - self.content.y));
+        (0..self.cols as i64 * i64::from(self.cell_w)).contains(&dx)
+            && (0..self.lines as i64 * i64::from(self.cell_h)).contains(&dy)
+    }
+
+    /// One past the last row of cells, in window px.
+    pub fn bottom(&self) -> i32 {
+        self.content.y + (self.lines as u32 * self.cell_h) as i32
+    }
 }
 
 /// Counts presses on the same cell within the double-click time.
@@ -80,7 +96,14 @@ mod tests {
     };
 
     fn at(x: i32, y: i32, offset: usize) -> (Point, Side) {
-        point_at(CONTENT, 8, 16, 10, 4, offset, x, y)
+        let g = GridGeom {
+            content: CONTENT,
+            cell_w: 8,
+            cell_h: 16,
+            cols: 10,
+            lines: 4,
+        };
+        g.point_at(offset, x, y)
     }
 
     fn pt(line: i32, col: usize) -> Point {
@@ -120,5 +143,28 @@ mod tests {
         // Too slow.
         assert_eq!(c.press(pt(0, 1), ms(750)), 1);
         assert_eq!(c.press(pt(0, 1), ms(800)), 2);
+    }
+
+    #[test]
+    fn padding_and_leftover_strip_are_not_on_a_cell() {
+        // 5 cols x 2 lines of 9x18 cells: x 4..49, y 34..70.
+        let g = GridGeom {
+            content: Rect {
+                x: 4,
+                y: 34,
+                w: 100,
+                h: 100,
+            },
+            cell_w: 9,
+            cell_h: 18,
+            cols: 5,
+            lines: 2,
+        };
+        assert!(g.contains(4, 34));
+        assert!(g.contains(48, 69));
+        assert!(!g.contains(3, 40));
+        assert!(!g.contains(49, 40));
+        assert!(!g.contains(10, 70));
+        assert!(!g.contains(10, 33));
     }
 }

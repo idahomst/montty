@@ -125,7 +125,12 @@ pub fn downscale(img: Rgba8, max_w: u32, max_h: u32) -> Rgba8 {
     for &(y0, y1) in &rows {
         acc.fill(0);
         for row in img.px[y0 * w * 4..y1 * w * 4].chunks_exact(w * 4) {
-            for (sum, p) in acc.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
+            for (sum, p) in acc
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(row.as_chunks::<4>().0)
+            {
                 let a = u64::from(p[3]);
                 sum[0] += u64::from(p[0]) * a;
                 sum[1] += u64::from(p[1]) * a;
@@ -135,19 +140,13 @@ pub fn downscale(img: Rgba8, max_w: u32, max_h: u32) -> Rgba8 {
         }
         for &(x0, x1) in &cols {
             let mut s = [0u64; 4];
-            for sum in acc[x0 * 4..x1 * 4].chunks_exact(4) {
+            for sum in acc[x0 * 4..x1 * 4].as_chunks::<4>().0 {
                 for c in 0..4 {
                     s[c] += sum[c];
                 }
             }
             let n = ((x1 - x0) * (y1 - y0)) as u64;
-            let div = |num: u64, den: u64| {
-                if den == 0 {
-                    0
-                } else {
-                    ((num + den / 2) / den) as u8
-                }
-            };
+            let div = |num: u64, den: u64| (num + den / 2).checked_div(den).map_or(0, |v| v as u8);
             out.extend_from_slice(&[
                 div(s[0], s[3]),
                 div(s[1], s[3]),
@@ -217,7 +216,7 @@ fn center_axis(len: u32, area_pos: i32, area_len: i32) -> (i32, i32, f32, f32) {
 /// Straight RGBA8 to premultiplied in place: rgb·a/255, rounded. Linear filtering of
 /// premultiplied texels doesn't pull the color of transparent texels into the edges.
 pub(crate) fn premultiply(px: &mut [u8]) {
-    for p in px.chunks_exact_mut(4) {
+    for p in px.as_chunks_mut::<4>().0 {
         let a = u32::from(p[3]);
         for c in &mut p[..3] {
             *c = ((u32::from(*c) * a + 127) / 255) as u8;
@@ -234,6 +233,16 @@ pub struct ImageTexture {
 }
 
 /// Draws an `ImageTexture` into a rect with a uv range and an alpha.
+/// Where and how one image is drawn: `uv` range of the texture into `dest` at `alpha`;
+/// `repeat` wraps a uv beyond 0..1 (Tile).
+#[derive(Clone, Copy)]
+pub(crate) struct ImageQuad {
+    pub dest: Rect,
+    pub uv: [f32; 4],
+    pub alpha: f32,
+    pub repeat: bool,
+}
+
 pub(crate) struct ImagePipeline {
     program: glow::Program,
     vao: glow::VertexArray,
@@ -322,19 +331,20 @@ impl ImagePipeline {
         unsafe { gl.delete_texture(t.tex) };
     }
 
-    /// Draw `t`'s `uv` range into `dest` at `alpha`; `repeat` wraps a uv beyond 0..1 (Tile).
-    // One quad's uniforms; bundling them would only rename the argument list.
-    #[allow(clippy::too_many_arguments)]
+    /// Draw `t` as `quad` (see `ImageQuad`).
     pub(crate) fn draw(
         &self,
         gl: &glow::Context,
         proj: &[f32; 16],
         t: &ImageTexture,
-        dest: Rect,
-        uv: [f32; 4],
-        alpha: f32,
-        repeat: bool,
+        quad: &ImageQuad,
     ) {
+        let ImageQuad {
+            dest,
+            uv,
+            alpha,
+            repeat,
+        } = *quad;
         let wrap = if repeat {
             glow::REPEAT
         } else {

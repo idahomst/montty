@@ -55,6 +55,32 @@ impl fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// Longest profile or session name a user can create, in characters.
+pub const MAX_NAME_CHARS: usize = 64;
+
+/// Why `name` can't be the stem of a file montty creates for it (a profile, a session),
+/// if it can't: empty, too long, a '/', a control character, or a first char from
+/// `bad_starts` (files montty skips when loading).
+pub fn check_file_stem(name: &str, bad_starts: &[char]) -> Result<(), String> {
+    let n = name.chars().count();
+    if n == 0 {
+        Err("the name is empty".into())
+    } else if n > MAX_NAME_CHARS {
+        Err(format!(
+            "the name is longer than {MAX_NAME_CHARS} characters"
+        ))
+    } else if name.contains('/') {
+        Err("the name can't contain '/'".into())
+    } else if name.chars().any(char::is_control) {
+        Err("the name can't contain control characters".into())
+    } else if name.starts_with(bad_starts) {
+        let list: Vec<String> = bad_starts.iter().map(|c| format!("'{c}'")).collect();
+        Err(format!("the name can't start with {}", list.join(" or ")))
+    } else {
+        Ok(())
+    }
+}
+
 /// `#rgb`, `#rrggbb`, `#rrggbbaa` (alpha ignored) or `rgb(r,g,b)`, case-insensitive,
 /// surrounding whitespace allowed.
 pub fn parse_color(s: &str) -> Option<Rgb> {

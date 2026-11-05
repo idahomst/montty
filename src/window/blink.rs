@@ -19,7 +19,7 @@ pub(super) struct Tick {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Blink {
-    pub last_activity: Instant,
+    last_activity: Instant,
 }
 
 impl Blink {
