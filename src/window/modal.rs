@@ -61,6 +61,13 @@ pub(super) enum Modal {
     Confirm(Confirm),
 }
 
+impl Modal {
+    /// An open modal takes every key and press: nothing reaches bindings or the PTY.
+    pub(super) fn is_open(&self) -> bool {
+        !matches!(self, Modal::None)
+    }
+}
+
 /// What a text prompt is for; Enter commits `field`'s text to it.
 pub(super) enum PromptPurpose {
     /// Renames the tab holding `pane` (its focused pane when opened), so the
@@ -149,16 +156,6 @@ pub(super) fn profile_choice(
     known(stem).then_some(stem.as_str())
 }
 
-/// Whether keys go to bindings and the focused PTY: only when no modal is open.
-pub(super) fn routes_to_pty(modal: &Modal) -> bool {
-    matches!(modal, Modal::None)
-}
-
-/// The index of the tab a rename targets; None once its pane is gone.
-pub(super) fn resolve_rename(tabs: &Tabs, pane: PaneId) -> Option<usize> {
-    tabs.tab_of(pane)
-}
-
 /// Closing `target` closes the window: `Window`, or `Tab` of the only tab.
 pub(super) fn closes_window(target: &CloseTarget, tabs: &Tabs) -> bool {
     match target {
@@ -222,14 +219,6 @@ pub(super) fn running_in<P>(
         .filter_map(|id| panes.get(id))
         .filter(|p| running(p))
         .count()
-}
-
-/// Whether closing a pane would stop something running: a pane started with
-/// an explicit command (`-e`) runs it as long as the pane lives (it leads the
-/// session, so the foreground-job check can't see it); any other pane when a
-/// foreground job (`foreground_child`) owns its terminal.
-pub(super) fn pane_running(runs_command: bool, foreground_child: impl FnOnce() -> bool) -> bool {
-    runs_command || foreground_child()
 }
 
 /// The first key combination bound to `a`, as shown in menus.
@@ -299,20 +288,6 @@ pub(super) fn pane_menu_items(bindings: &Bindings, has_selection: bool) -> Vec<M
         item("Copy", Action::Copy, copy),
         item("Paste", Action::Paste, MenuAction::Paste),
     ]
-}
-
-/// The top-left corner of a `w` × `h` menu opened by a click at (`x`, `y`): on the
-/// pointer, moved to stay inside the window like a profile menu.
-pub(super) fn pointer_menu_origin(
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
-    win_w: i32,
-    win_h: i32,
-) -> (i32, i32) {
-    let at = Rect { x, y, w: 0, h: 0 };
-    profile_menu_origin(at, w, h, win_w, win_h)
 }
 
 /// One row per key binding (numbered families collapsed, see `shortcut_rows`):
@@ -765,13 +740,13 @@ impl Window {
     /// Whether a modal widget is open: it gets every key and press. (The pane
     /// overlay is not drawn meanwhile.)
     pub(super) fn modal_open(&self) -> bool {
-        !routes_to_pty(&self.modal)
+        self.modal.is_open()
     }
 
     /// Replace the open modal (or close it with `Modal::None`) and redraw.
     /// Opening one ends a divider drag (it takes the pointer from now on).
     pub(super) fn set_modal(&mut self, m: Modal) {
-        if !routes_to_pty(&m) {
+        if m.is_open() {
             self.mouse.cancel_drag();
             self.size_labels.clear();
         }
@@ -835,7 +810,8 @@ impl Window {
         let (w, h) = self.size_px();
         let probe = Menu::new(items, 0, 0);
         let r = probe.rect(&bm);
-        let (x, y) = pointer_menu_origin(x, y, r.w, r.h, w, h);
+        // On the pointer, moved to stay inside the window like a profile menu.
+        let (x, y) = profile_menu_origin(Rect { x, y, w: 0, h: 0 }, r.w, r.h, w, h);
         self.set_modal(Modal::Menu {
             menu: Menu::new(probe.items, x + r.w, y),
             profiles: None,
@@ -876,7 +852,7 @@ impl Window {
         else {
             return None;
         };
-        let i = resolve_rename(&self.tabs, *pane).filter(|_| *pane == closed)?;
+        let i = self.tabs.tab_of(*pane).filter(|_| *pane == closed)?;
         self.tabs
             .get(i)?
             .tree
@@ -906,9 +882,7 @@ impl Window {
         if matches!(&self.modal, Modal::Confirm(c) if c.target == target) {
             return;
         }
-        let running = running_in(&target, &self.tabs, &self.panes, |p: &Pane| {
-            pane_running(p.runs_command(), || p.has_foreground_child())
-        });
+        let running = running_in(&target, &self.tabs, &self.panes, |p: &Pane| p.is_running());
         let confirm_window = self.store.global().confirm_close_window;
         let Some(msg) = close_prompt(&target, &self.tabs, running, confirm_window) else {
             self.close_target(target);
@@ -987,7 +961,7 @@ impl Window {
             Modal::Prompt {
                 purpose: PromptPurpose::RenameTab { pane, .. },
                 ..
-            } => resolve_rename(&self.tabs, *pane).is_none(),
+            } => self.tabs.tab_of(*pane).is_none(),
             Modal::Confirm(c) => !target_alive(&c.target, &self.tabs, &self.panes),
             Modal::Menu {
                 profiles: Some(ProfileMenu { pane, .. }),
@@ -1023,7 +997,7 @@ impl Window {
             return;
         };
         let title = renamed_title(original.as_deref(), seed, text);
-        if let Some(i) = resolve_rename(&self.tabs, *pane) {
+        if let Some(i) = self.tabs.tab_of(*pane) {
             if let Some(tab) = self.tabs.get_mut(i) {
                 tab.title = title;
             }
@@ -1276,7 +1250,9 @@ impl Window {
                 field,
             } => {
                 let text = field.text().to_string();
-                let inside = resolve_rename(&self.tabs, *pane)
+                let inside = self
+                    .tabs
+                    .tab_of(*pane)
                     .and_then(|i| self.tab_text_rect(i))
                     .is_some_and(|r| field_rect(r, &bm, self.chrome_stroke()).contains(x, y));
                 if !inside {
@@ -1319,9 +1295,7 @@ impl Window {
                 purpose: PromptPurpose::RenameTab { pane, .. },
                 field,
             } => {
-                let Some(text) =
-                    resolve_rename(&self.tabs, *pane).and_then(|i| self.tab_text_rect(i))
-                else {
+                let Some(text) = self.tabs.tab_of(*pane).and_then(|i| self.tab_text_rect(i)) else {
                     return;
                 };
                 paint_rename(field, text, &bm, stroke)
@@ -1378,67 +1352,6 @@ mod tests {
             && r.y >= outer.y
             && r.x + r.w <= outer.x + outer.w
             && r.y + r.h <= outer.y + outer.h
-    }
-
-    #[test]
-    fn modal_swallows_keys() {
-        assert!(routes_to_pty(&Modal::None));
-        let open = [
-            Modal::Menu {
-                menu: menu_at(400),
-                profiles: None,
-                sessions: None,
-                pane: None,
-            },
-            Modal::Menu {
-                menu: menu_at(400),
-                profiles: Some(ProfileMenu {
-                    pane: 1,
-                    stems: Vec::new(),
-                }),
-                sessions: None,
-                pane: None,
-            },
-            Modal::Menu {
-                menu: menu_at(400),
-                profiles: None,
-                sessions: Some(Vec::new()),
-                pane: None,
-            },
-            Modal::Panel(about_panel()),
-            Modal::Prompt {
-                purpose: PromptPurpose::RenameTab {
-                    pane: 1,
-                    original: None,
-                    seed: "x".into(),
-                },
-                field: TextField::new("x"),
-            },
-            Modal::Prompt {
-                purpose: PromptPurpose::SaveSession,
-                field: TextField::new(""),
-            },
-            Modal::Confirm(Confirm::new(CloseTarget::Window, confirm_message(1))),
-        ];
-        for m in &open {
-            assert!(!routes_to_pty(m));
-        }
-    }
-
-    #[test]
-    fn rename_of_closed_tab_is_dismissed() {
-        let mut tabs = Tabs::new(Tab::new(1, (32, 32)));
-        tabs.push(Tab::new(2, (32, 32)));
-        tabs.push(Tab::new(3, (32, 32)));
-        assert_eq!(resolve_rename(&tabs, 3), Some(2));
-        // An earlier tab closes: the rename follows its tab to the new index.
-        tabs.remove(0);
-        assert_eq!(resolve_rename(&tabs, 3), Some(1));
-        // Its own tab closes: nothing to rename.
-        tabs.remove(1);
-        assert_eq!(resolve_rename(&tabs, 3), None);
-        tabs.remove(0);
-        assert_eq!(resolve_rename(&tabs, 3), None);
     }
 
     /// Tab 1 holds panes 1 and 2 (split); tab 3 holds pane 3.
@@ -1545,22 +1458,6 @@ mod tests {
         assert_eq!(running_in(&CloseTarget::Window, &tabs, &idle, |&r| r), 1);
         assert_eq!(running_in(&CloseTarget::Tab(2), &tabs, &idle, |&r| r), 1);
         assert_eq!(running_in(&CloseTarget::Pane(2), &tabs, &idle, |&r| r), 0);
-    }
-
-    #[test]
-    fn command_panes_count_as_running() {
-        assert!(pane_running(true, || false), "-e vim: the command itself");
-        assert!(pane_running(false, || true), "shell with a foreground job");
-        assert!(!pane_running(false, || false), "idle shell");
-        // The foreground check (a syscall) is skipped for a command pane.
-        assert!(pane_running(true, || panic!("not needed")));
-        // Counted per target like any running pane.
-        let tabs = Tabs::new(Tab::new(1, (32, 32)));
-        let panes: HashMap<PaneId, (bool, bool)> = [(1, (true, false))].into();
-        let n = running_in(&CloseTarget::Window, &tabs, &panes, |&(cmd, fg)| {
-            pane_running(cmd, || fg)
-        });
-        assert_eq!(n, 1);
     }
 
     #[test]
@@ -2030,16 +1927,6 @@ mod tests {
         assert_eq!(shortcut("Split left"), Some("Ctrl+Alt+E"));
         // Unbound: the row stays, without a shortcut.
         assert_eq!(shortcut("Paste"), None);
-    }
-
-    #[test]
-    fn pane_menu_opens_at_the_pointer_and_stays_inside() {
-        // Room below and right: its top-left corner on the pointer.
-        assert_eq!(pointer_menu_origin(100, 50, 120, 90, 800, 600), (100, 50));
-        // Near the bottom-right corner: moved left, and above the pointer.
-        assert_eq!(pointer_menu_origin(780, 590, 120, 90, 800, 600), (680, 500));
-        // A window smaller than the menu: from the top-left corner.
-        assert_eq!(pointer_menu_origin(10, 10, 120, 90, 60, 40), (0, 0));
     }
 
     #[test]

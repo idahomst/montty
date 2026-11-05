@@ -54,11 +54,6 @@ fn press_kind(clicks: u8, shift: bool, alt: bool, has_selection: bool, mouse_mod
     })
 }
 
-/// A press-release that never moved (a plain single click) clears the selection.
-fn clears_on_release(moved: bool) -> bool {
-    !moved
-}
-
 /// The whole grid, history included, as one Lines selection.
 fn select_all_selection<T>(term: &Term<T>) -> Selection {
     let top = Point::new(term.topmost_line(), Column(0));
@@ -244,7 +239,8 @@ impl Window {
             return;
         };
         let mut term = pane.term.lock();
-        if clears_on_release(d.moved) {
+        // A press-release that never moved (a plain single click) clears the selection.
+        if !d.moved {
             term.selection = None;
         }
         let done = term.selection.as_ref().is_some_and(|s| !s.is_empty());
@@ -301,8 +297,7 @@ mod tests {
             Press::Start(SelectionType::Block)
         );
         // An unmoved Shift+click there is a plain click: it clears on release.
-        let moved = press(1) == Press::Extend;
-        assert!(clears_on_release(moved));
+        assert_ne!(press(1), Press::Extend);
     }
 
     #[test]
@@ -320,11 +315,5 @@ mod tests {
         let text = t.selection_to_string().unwrap();
         assert!(text.starts_with("one\ntwo\n"), "{text:?}");
         assert!(text.contains("four\nfive"), "{text:?}");
-    }
-
-    #[test]
-    fn only_an_unmoved_click_clears() {
-        assert!(clears_on_release(false));
-        assert!(!clears_on_release(true));
     }
 }

@@ -114,11 +114,6 @@ pub(super) struct PaneFont {
     pub padding: i32,
 }
 
-/// The font keys in use: the UI font and each pane's.
-fn live_keys(ui: u32, panes: impl Iterator<Item = u32>) -> HashSet<u32> {
-    panes.chain(std::iter::once(ui)).collect()
-}
-
 /// A profile's font size plus a pane's zoom, within `MIN_PT..=MAX_PT`.
 pub(super) fn effective_size(base_pt: f32, zoom_pt: f32) -> f32 {
     (base_pt + zoom_pt).clamp(MIN_PT, MAX_PT)
@@ -445,13 +440,6 @@ fn replace_title(slot: &mut Option<String>, new: Option<String>) -> bool {
 /// Every pane's rect in every tab (hidden tabs included) when tiled into `area`.
 fn all_layouts(tabs: &Tabs, area: Rect) -> Vec<(PaneId, Rect)> {
     tabs.iter().flat_map(|t| t.tree.layout(area)).collect()
-}
-
-/// Whether a keyboard event is handled at all. winit sends synthetic presses for keys already
-/// held when the window gains focus (launching montty from a Ctrl+Alt+T hotkey would type
-/// ESC ^T), so they are ignored, as Alacritty does.
-fn handles_key(is_synthetic: bool) -> bool {
-    !is_synthetic
 }
 
 /// Whether `on_key` stops at this event, keeping `binding_keys` (keys whose press a binding,
@@ -919,11 +907,14 @@ impl Window {
                 self.modifiers = m.state();
                 self.update_link_hover();
             }
+            // winit sends synthetic presses for keys already held when the window gains
+            // focus (launching montty from a Ctrl+Alt+T hotkey would type ESC ^T): ignored,
+            // as Alacritty does.
             WindowEvent::KeyboardInput {
                 event,
-                is_synthetic,
+                is_synthetic: false,
                 ..
-            } if handles_key(is_synthetic) => self.on_key(&event),
+            } => self.on_key(&event),
             WindowEvent::CursorMoved { position, .. } => self.on_cursor_moved(position),
             WindowEvent::CursorLeft { .. } => self.on_cursor_left(),
             WindowEvent::MouseInput { state, button, .. } => self.on_mouse_input(state, button),
@@ -1057,7 +1048,7 @@ impl Window {
         [
             self.scheduler.deadline(),
             self.debounce.deadline(),
-            self.autosave_deadline(),
+            self.autosave_due,
             self.toast.as_ref().map(|t| t.until),
             self.blink_deadline(now),
             self.bell.map(|(_, until)| until),
@@ -1619,8 +1610,9 @@ impl Window {
     /// font, so a set a pane needs is loaded.
     fn live_font_keys(&mut self) -> HashSet<u32> {
         let ids: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.tree.panes()).collect();
-        let keys: Vec<u32> = ids.into_iter().map(|id| self.pane_font(id).key).collect();
-        live_keys(self.ui_font, keys.into_iter())
+        let mut keys: HashSet<u32> = ids.into_iter().map(|id| self.pane_font(id).key).collect();
+        keys.insert(self.ui_font);
+        keys
     }
 
     /// Drop the font sets nothing draws with. After zoom, profile, config and scale
@@ -1914,13 +1906,6 @@ mod tests {
         );
         // No panes: nothing required (the tree's MIN_PANE_PX floor applies).
         assert_eq!(tab_min_extent(std::iter::empty()), (0, 0));
-    }
-
-    #[test]
-    fn live_font_keys_cover_every_tab_and_the_ui() {
-        let keys = live_keys(1, [5, 7, 5].into_iter());
-        assert_eq!(keys, HashSet::from([1, 5, 7]));
-        assert_eq!(live_keys(3, std::iter::empty()), HashSet::from([3]));
     }
 
     #[test]
@@ -2449,13 +2434,6 @@ mod tests {
         assert!(r.contains("work", "Foo"));
         assert!(!r.contains("work", "Bar"), "another family in that profile");
         assert!(!r.contains("other", "Foo"));
-    }
-
-    #[test]
-    fn synthetic_presses_are_ignored() {
-        assert!(handles_key(false));
-        // Keys held while the window gains focus (e.g. the Ctrl+Alt+T that launched us).
-        assert!(!handles_key(true));
     }
 
     #[test]

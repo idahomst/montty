@@ -9,9 +9,7 @@ use winit::dpi::LogicalSize;
 use winit::monitor::MonitorHandle;
 
 use super::links::open_detached;
-use super::modal::{
-    Modal, PromptPurpose, pane_running, profile_menu_limits, profile_menu_origin, target_alive,
-};
+use super::modal::{Modal, PromptPurpose, profile_menu_limits, profile_menu_origin, target_alive};
 use super::tabs::Tab;
 use super::{PaneStyle, Window};
 use crate::config::profile::{DEFAULT_PROFILE_TOML, new_profile_file, with_name};
@@ -103,22 +101,6 @@ pub(super) fn fresh(tabs: usize, panes: usize, busy: bool, got_input: bool) -> b
     tabs == 1 && panes == 1 && !busy && !got_input
 }
 
-/// What the save prompt's Enter does first: the file (relative to the config dir) for
-/// `name`, or why the name is invalid.
-pub(super) fn save_commit(name: &str) -> Result<PathBuf, String> {
-    session_file(name)
-}
-
-/// When the autosave armed by a layout change at `changed_at` is due.
-pub(super) fn autosave_after(changed_at: Instant) -> Instant {
-    changed_at + AUTOSAVE_DELAY
-}
-
-/// Whether a window with `panes` panes is written to `_last.json`.
-pub(super) fn should_autosave(enabled: bool, panes: usize) -> bool {
-    enabled && panes > 0
-}
-
 /// How the first window starts.
 #[derive(Debug, PartialEq)]
 pub enum StartupInit {
@@ -153,13 +135,13 @@ impl Window {
     /// arms the autosave debounce, unless `restore_last_session` is off.
     pub(super) fn layout_changed(&mut self) {
         if self.store.global().restore_last_session {
-            self.autosave_due = Some(autosave_after(Instant::now()));
+            self.autosave_due = Some(Instant::now() + AUTOSAVE_DELAY);
         }
     }
 
-    /// Whether `_last.json` is kept for this window now.
+    /// Whether `_last.json` is kept for this window now: not for an empty one.
     fn autosave_wanted(&self) -> bool {
-        should_autosave(self.store.global().restore_last_session, self.panes.len())
+        self.store.global().restore_last_session && !self.panes.is_empty()
     }
 
     /// Write the window to `_last.json`; the error says why it wasn't.
@@ -168,11 +150,6 @@ impl Window {
         let rel = last_file();
         write_atomic(dir, &rel, &to_json(&self.session_doc()))
             .map_err(|e| format!("{}: {e}", rel.display()))
-    }
-
-    /// The autosave deadline, while one is armed.
-    pub(super) fn autosave_deadline(&self) -> Option<Instant> {
-        self.autosave_due
     }
 
     /// The autosave fires when due: one write, then no deadline is left.
@@ -184,7 +161,7 @@ impl Window {
         if self.autosave_wanted()
             && let Err(e) = self.write_last()
         {
-            self.error_toast(&e);
+            self.show_error(&e);
         }
     }
 
@@ -207,11 +184,6 @@ impl Window {
     fn info_toast(&mut self, text: &str) {
         self.toast = Some(Toast::new(text, ToastSource::Info, Instant::now()));
         self.schedule();
-    }
-
-    /// An error toast that waits for a config, startup or spawn toast on screen.
-    fn error_toast(&mut self, text: &str) {
-        self.show_error(text);
     }
 
     /// The window as a session: every tab's layout, titles and focus, a leaf per pane
@@ -250,9 +222,7 @@ impl Window {
     pub fn is_fresh(&self) -> bool {
         let ids: Vec<PaneId> = self.tabs.iter().flat_map(|t| t.tree.panes()).collect();
         let panes = ids.iter().filter_map(|id| self.panes.get(id));
-        let busy = panes
-            .clone()
-            .any(|p| pane_running(p.runs_command(), || p.has_foreground_child()));
+        let busy = panes.clone().any(Pane::is_running);
         let typed = panes.clone().any(Pane::got_input);
         fresh(self.tabs.len(), ids.len(), busy, typed)
     }
@@ -263,7 +233,7 @@ impl Window {
         let doc = match read_session(self.user_config_dir(), name) {
             Ok(doc) => doc,
             Err(e) => {
-                self.error_toast(&e);
+                self.show_error(&e);
                 return;
             }
         };
@@ -415,15 +385,15 @@ impl Window {
     /// says why; otherwise the session is written (replacing a file of that name) and
     /// the prompt closes. A write error keeps the prompt open and shows the error.
     pub(super) fn commit_save(&mut self, name: &str) {
-        let rel = match save_commit(name) {
+        let rel = match session_file(name) {
             Ok(rel) => rel,
             Err(why) => {
-                self.error_toast(&format!("invalid session name: {why}"));
+                self.show_error(&format!("invalid session name: {why}"));
                 return;
             }
         };
         let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.error_toast(NO_CONFIG_DIR);
+            self.show_error(NO_CONFIG_DIR);
             return;
         };
         // The prompt closes only once the file is written: a failure keeps the typed name.
@@ -433,7 +403,7 @@ impl Window {
                 self.last_session = Some(name.to_string());
                 self.info_toast(&format!("saved session '{name}'"));
             }
-            Err(e) => self.error_toast(&format!("{}: {e}", rel.display())),
+            Err(e) => self.show_error(&format!("{}: {e}", rel.display())),
         }
     }
 
@@ -469,14 +439,14 @@ impl Window {
     /// `open_in_editor`).
     pub(super) fn edit_config(&mut self) {
         let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.error_toast(NO_CONFIG_DIR);
+            self.show_error(NO_CONFIG_DIR);
             return;
         };
         let file = dir.join("config.toml");
         if !file.exists()
             && let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&file, ""))
         {
-            self.error_toast(&format!("{}: {e}", file.display()));
+            self.show_error(&format!("{}: {e}", file.display()));
             return;
         }
         self.open_in_editor(dir, &file);
@@ -486,13 +456,13 @@ impl Window {
     /// an editor like `Edit config`.
     pub(super) fn edit_profile(&mut self, pane: PaneId) {
         let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.error_toast(NO_CONFIG_DIR);
+            self.show_error(NO_CONFIG_DIR);
             return;
         };
         let file = profile_path(&dir, self.resolved_stem(pane));
         match file.is_file() {
             true => self.open_in_editor(dir, &file),
-            false => self.error_toast(&format!("{}: not found", file.display())),
+            false => self.show_error(&format!("{}: not found", file.display())),
         }
     }
 
@@ -504,12 +474,12 @@ impl Window {
         let rel = match new_profile_file(name) {
             Ok(rel) => rel,
             Err(why) => {
-                self.error_toast(&format!("invalid profile name: {why}"));
+                self.show_error(&format!("invalid profile name: {why}"));
                 return;
             }
         };
         let Some(dir) = self.user_config_dir().map(Path::to_path_buf) else {
-            self.error_toast(NO_CONFIG_DIR);
+            self.show_error(NO_CONFIG_DIR);
             return;
         };
         let source = profile_path(&dir, self.resolved_stem(pane));
@@ -518,11 +488,11 @@ impl Window {
         match write_new(&file, &with_name(&text, name)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                self.error_toast(&format!("profile '{name}' already exists"));
+                self.show_error(&format!("profile '{name}' already exists"));
                 return;
             }
             Err(e) => {
-                self.error_toast(&format!("{}: {e}", rel.display()));
+                self.show_error(&format!("{}: {e}", rel.display()));
                 return;
             }
         }
@@ -552,7 +522,7 @@ impl Window {
     pub(super) fn open_config_folder(&mut self) {
         match self.user_config_dir() {
             Some(dir) => open_detached(OsStr::new(&dir.to_path_buf())),
-            None => self.error_toast(NO_CONFIG_DIR),
+            None => self.show_error(NO_CONFIG_DIR),
         }
     }
 }
@@ -640,23 +610,6 @@ mod tests {
             cwd: cwd.map(PathBuf::from),
             command: command.map(|c| c.iter().map(|s| s.to_string()).collect()),
         }
-    }
-
-    #[test]
-    fn autosave_debounce_is_one_second() {
-        let t = Instant::now();
-        assert_eq!(autosave_after(t), t + Duration::from_secs(1));
-    }
-
-    #[test]
-    fn empty_window_not_autosaved() {
-        assert!(!should_autosave(true, 0));
-        assert!(should_autosave(true, 1));
-    }
-
-    #[test]
-    fn disabled_never_autosaves() {
-        assert!(!should_autosave(false, 3));
     }
 
     fn doc() -> SessionDoc {
@@ -800,15 +753,6 @@ mod tests {
         );
         assert_eq!(gone[0].root.leaves()[0].cwd, None);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn invalid_name_keeps_prompt() {
-        assert_eq!(save_commit("demo"), Ok(PathBuf::from("sessions/demo.json")));
-        for bad in ["", "a/b", ".hidden", "_last"] {
-            assert!(save_commit(bad).is_err(), "{bad:?}");
-        }
-        assert!(save_commit("").unwrap_err().contains("empty"));
     }
 
     #[test]

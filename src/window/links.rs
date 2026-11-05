@@ -31,12 +31,6 @@ impl LinkState {
     }
 }
 
-/// Links are hovered only with Ctrl held and no drag (a divider's or a selection's) on:
-/// a hand while dragging would promise a click that isn't coming.
-fn hover_wanted(ctrl: bool, dragging: bool) -> bool {
-    ctrl && !dragging
-}
-
 impl Window {
     /// The link under the pointer, when it is over a pane and no modal is open.
     fn link_under_pointer(&mut self) -> Option<(PaneId, Link)> {
@@ -61,8 +55,9 @@ impl Window {
     /// Recompute the hovered link: on pointer motion and when the modifiers change.
     /// Nothing is searched unless Ctrl is held.
     pub(super) fn update_link_hover(&mut self) {
-        let dragging = self.mouse.dragging();
-        let hover = if hover_wanted(self.modifiers.control_key(), dragging) {
+        // Not during a drag (a divider's or a selection's): a hand would promise a click
+        // that isn't coming.
+        let hover = if self.modifiers.control_key() && !self.mouse.dragging() {
             self.link_under_pointer()
         } else {
             None
@@ -185,14 +180,6 @@ pub(super) fn open_detached(arg: &OsStr) {
 mod tests {
     use super::*;
     use alacritty_terminal::index::{Column, Line, Point};
-
-    #[test]
-    fn no_link_hover_during_a_drag() {
-        assert!(hover_wanted(true, false));
-        assert!(!hover_wanted(true, true));
-        assert!(!hover_wanted(false, false));
-        assert!(!hover_wanted(false, true));
-    }
 
     #[test]
     fn hand_over_a_link_else_divider_else_default() {

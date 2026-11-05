@@ -11,7 +11,7 @@ use super::Window;
 use super::attention::Level;
 use super::draw::ChromeColors;
 use super::marks::{disc, level_color};
-use super::modal::{Modal, PromptPurpose, editing_label, resolve_rename};
+use super::modal::{Modal, PromptPurpose, editing_label};
 use super::tabs::Tabs;
 use crate::input::bindings::Action;
 use crate::layout::{PaneId, Rect};
@@ -313,7 +313,7 @@ impl Window {
             purpose: PromptPurpose::RenameTab { pane, .. },
             field,
         } = &self.modal
-            && let Some(label) = resolve_rename(&self.tabs, *pane).and_then(|i| labels.get_mut(i))
+            && let Some(label) = self.tabs.tab_of(*pane).and_then(|i| labels.get_mut(i))
         {
             *label = editing_label(field.text());
         }

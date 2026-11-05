@@ -230,6 +230,12 @@ impl Pane {
         self.runs_command
     }
 
+    /// Whether closing the pane would stop something running: its explicit command (it
+    /// lives as long as the pane), or a foreground job. The syscall is skipped for a command.
+    pub fn is_running(&self) -> bool {
+        self.runs_command() || self.has_foreground_child()
+    }
+
     /// The explicit command this pane was started with (see `set_explicit_command`).
     pub fn explicit_command(&self) -> Option<&[String]> {
         self.explicit_command.as_deref()
