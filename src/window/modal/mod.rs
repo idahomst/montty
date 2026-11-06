@@ -254,8 +254,8 @@ impl Window {
     }
 
     /// Ask before quitting montty: `running` counts the panes with a foreground job in every
-    /// window. The prompt's Close asks the app to quit (see `close_target`). A repeat while it
-    /// is open does nothing.
+    /// window. The prompt's Quit asks the app to quit (see `close_target`). A repeat while it is
+    /// open refreshes the count and brings the window forward.
     pub fn ask_quit(&mut self, running: usize) {
         if let Modal::Confirm(c) = &mut self.modal
             && c.target == CloseTarget::App
