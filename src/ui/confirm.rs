@@ -9,6 +9,7 @@ use crate::layout::{PaneId, Rect};
 use crate::ui::{centered, modal_extent};
 
 pub const CLOSE_LABEL: &str = "Close";
+pub const QUIT_LABEL: &str = "Quit";
 pub const CANCEL_LABEL: &str = "Cancel";
 
 /// What a confirmed close closes.
@@ -81,6 +82,14 @@ impl Confirm {
             target,
             message,
             hover: None,
+        }
+    }
+
+    /// The confirm button's text: the quit prompt asks "Quit anyway?", so its button says Quit.
+    pub fn confirm_label(&self) -> &'static str {
+        match self.target {
+            CloseTarget::App => QUIT_LABEL,
+            _ => CLOSE_LABEL,
         }
     }
 
@@ -204,6 +213,14 @@ mod tests {
             quit_message(3),
             "3 processes are still running. Quit anyway?"
         );
+    }
+
+    #[test]
+    fn only_the_quit_prompt_labels_its_button_quit() {
+        let label = |t| Confirm::new(t, String::new()).confirm_label();
+        assert_eq!(label(CloseTarget::App), "Quit");
+        assert_eq!(label(CloseTarget::Window), "Close");
+        assert_eq!(label(CloseTarget::Pane(1)), "Close");
     }
 
     #[test]

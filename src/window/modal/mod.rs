@@ -257,7 +257,13 @@ impl Window {
     /// window. The prompt's Close asks the app to quit (see `close_target`). A repeat while it
     /// is open does nothing.
     pub fn ask_quit(&mut self, running: usize) {
-        if matches!(&self.modal, Modal::Confirm(c) if c.target == CloseTarget::App) {
+        if let Modal::Confirm(c) = &mut self.modal
+            && c.target == CloseTarget::App
+        {
+            // A second quit while in the background still brings the prompt forward.
+            c.message = quit_message(running);
+            self.schedule();
+            self.window.focus_window();
             return;
         }
         let mut c = Confirm::new(CloseTarget::App, quit_message(running));
