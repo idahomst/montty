@@ -1826,13 +1826,13 @@ impl FirstPane<'_> {
         store: &Store,
         sink: &Arc<dyn EventSink>,
     ) -> Result<(Pane, Option<(String, String)>), String> {
-        let shell = std::env::var("SHELL").ok();
+        let shell = crate::launch::env_shell();
         let opts = pane_options(
             &store.profile(self.stem).profile,
             self.command.clone(),
             shell.as_deref(),
             self.x11_window_id,
-            None,
+            crate::launch::default_start_dir(),
             store.global().kitty_keyboard,
         );
         let fallback_ok = self.command.is_none();

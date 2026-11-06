@@ -454,7 +454,7 @@ scrollback = 10000          # lines of history, 0 to 1000000
 cursor_shape = "block"      # "block", "beam" or "underline"
 cursor_blink = false        # blink the cursor while typing
 # login_shell = true        # start the shell as a login shell (-l); default: true on macOS
-# shell = "/bin/zsh"        # default: $SHELL, else /bin/sh
+# shell = "/bin/zsh"        # default: $SHELL, else the account's shell, else /bin/sh
 # command = ["htop"]        # run this instead of a shell
 
 # Override single colors of the scheme: "#rrggbb" or "rgb(r,g,b)".

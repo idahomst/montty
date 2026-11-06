@@ -213,14 +213,14 @@ impl Window {
         let font = self.pane_font(id);
         let (cols, lines) = grid_size(rect, &font.metrics, font.padding);
         let size = window_size(cols, lines, &font.metrics);
-        let shell = std::env::var("SHELL").ok();
+        let shell = crate::launch::env_shell();
         let profile = &self.pane_profile(id).profile;
         let opts = pane_options(
             profile,
             command.clone(),
             shell.as_deref(),
             self.x11_window_id,
-            cwd,
+            cwd.or_else(crate::launch::default_start_dir),
             self.store.global().kitty_keyboard,
         );
         let result = spawn_pane_process(id, &opts, size, &self.sink, true, shell.as_deref());

@@ -29,6 +29,7 @@ Top-level modules (`src/`):
 - `windows.rs`: the collection of windows (`Windows<W>`) and the requests a window makes of the app (`AppRequest`: new window, open session).
 - `window/`: one OS window (see below).
 - `layout/`: pure data. `geom.rs` (rects, constants) and `tree.rs` (binary split tree: split, close, swap, resize, hit-test).
+- `launch.rs`: what panes take from montty's own environment (shell, macOS locale and start dir).
 - `events.rs`: `UserEvent` (what the PTY readers, config watcher and image decoders post to the UI thread) and
   `EventSink`.
 - `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread),

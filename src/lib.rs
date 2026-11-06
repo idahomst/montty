@@ -8,6 +8,7 @@ pub mod events;
 pub mod font;
 pub mod frame;
 pub mod input;
+pub mod launch;
 pub mod layout;
 #[cfg(target_os = "macos")]
 pub mod macos_quit;
