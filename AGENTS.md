@@ -5,8 +5,8 @@ Guide for AI agents working on montty (Claude Code reads it through `CLAUDE.md`)
 ## What montty is
 
 A tiling terminal emulator inspired by Tilix, in Rust: winit + glutin + glow (OpenGL 3.3 / GLES 3) for the window and
-drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS builds
-and passes the tests (CI runs both), but is not a supported app yet; Windows is not supported. Priority order:
+drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS is
+supported too (CI runs both); Windows is not supported. Priority order:
 responsiveness > simplicity > features. Rust edition 2024.
 
 ## Commands
@@ -135,8 +135,9 @@ Key flows:
 ## Packaging and release
 
 - Pushing a tag `v*` runs `.github/workflows/release.yml`: it tests, builds the release binary, then builds the `.deb`
-  (`packaging/deb/build-deb.sh <version> <binary> <out-dir>`), a tarball, and an Arch package (`packaging/arch/PKGBUILD`
-  in an Arch container), and attaches them to a GitHub release.
+  (`packaging/deb/build-deb.sh <version> <binary> <out-dir>`), a tarball, an Arch package (`packaging/arch/PKGBUILD`
+  in an Arch container) and a macOS `.dmg` (`packaging/macos/build-app.sh`, universal binary, ad-hoc signed), and
+  attaches them to a GitHub release.
 - `assets/`: `montty.desktop`, `icon/hicolor/<N>x<N>/apps/montty.png`, and the built-in Tilix schemes in `schemes/`.
 - Keep the version in `Cargo.toml` and `packaging/arch/PKGBUILD` in step with the tag; the release workflow fails
   otherwise.

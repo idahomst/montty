@@ -21,7 +21,7 @@ small, fast and idle-quiet: it is drawn with OpenGL, runs on X11 and Wayland, an
 - **Tilix key bindings** by default, every action rebindable in `config.toml`.
 - Pane size labels while resizing (and on demand with `Ctrl+Alt+S`), a visual bell, color emoji and CJK.
 
-macOS and Windows are not supported yet.
+Linux (X11, Wayland) and macOS 11+. Windows is not supported yet.
 
 ## Install
 
@@ -31,6 +31,8 @@ Download a package from the [latest release](https://github.com/idahomst/montty/
 - Arch / CachyOS: `sudo pacman -U montty-<version>-1-x86_64.pkg.tar.zst`
 - Any Linux (x86_64): unpack `montty-<version>-x86_64-linux.tar.gz` and copy the files as described in
   [docs/install.md](docs/install.md).
+- macOS: open `montty-<version>-macos.dmg` and drag montty.app to Applications; see
+  [docs/install.md](docs/install.md#macos) for the first launch.
 
 ### Build from source
 
