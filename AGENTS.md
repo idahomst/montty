@@ -45,7 +45,8 @@ Top-level modules (`src/`):
   `textfield.rs`, `toast.rs`, `overlay.rs`, `scrollbar.rs`, `icons.rs` (stroke geometry), `theme.rs`, `text.rs`.
 - `input/`: key to xterm bytes (`keys.rs`), kitty keyboard protocol encoding (`kitty.rs`), key-binding parsing and the
   action table (`bindings.rs`), mouse reporting, paste.
-- `notify.rs`: optional desktop notifications by spawning `notify-send` (rate-limited per pane).
+- `notify.rs`: optional desktop notifications by spawning `notify-send`, or `osascript` on macOS (rate-limited per
+  pane).
 - `config/`: `global.rs` (`config.toml`), `profile.rs`, `scheme.rs` (Tilix JSON, built-ins from `assets/schemes`),
   `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify / FSEvents watcher + debounce).
 - `session.rs`: saved-session JSON format, names, atomic writes.

@@ -1,4 +1,5 @@
-//! Desktop notifications through the `notify-send` command (no extra crate).
+//! Desktop notifications through `notify-send` (Linux) or `osascript` (macOS), with no extra
+//! crate.
 
 use crate::layout::PaneId;
 use std::collections::HashMap;
@@ -42,22 +43,15 @@ impl Notifier {
         true
     }
 
-    /// Spawns `notify-send` and returns at once; a detached thread reaps the child. A missing
+    /// Spawns the notifier and returns at once; a detached thread reaps the child. A missing
     /// binary disables the notifier after one stderr line.
     pub fn send(&mut self, title: &str, body: &str) {
         if self.disabled {
             return;
         }
-        let spawned = Command::new("notify-send")
-            .args([
-                "-a",
-                "montty",
-                "-i",
-                "montty",
-                "--",
-                &escape_markup(title),
-                &escape_markup(body),
-            ])
+        let (prog, args) = notifier_command(title, body);
+        let spawned = Command::new(prog)
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -69,11 +63,38 @@ impl Notifier {
                 });
             }
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                eprintln!("montty: notify-send not found; desktop notifications disabled");
+                eprintln!("montty: {prog} not found; desktop notifications disabled");
                 self.disabled = true;
             }
             Err(_) => {}
         }
+    }
+}
+
+/// The program that shows one notification, and its arguments.
+fn notifier_command(title: &str, body: &str) -> (&'static str, Vec<String>) {
+    if cfg!(target_os = "macos") {
+        // Title and body are argv items after `--`, never script text, so OSC 9/777 text
+        // can't inject AppleScript.
+        let script = [
+            "-e",
+            "on run argv",
+            "-e",
+            "display notification (item 2 of argv) with title (item 1 of argv)",
+            "-e",
+            "end run",
+            "--",
+        ];
+        let mut args: Vec<String> = script.iter().map(|s| s.to_string()).collect();
+        args.extend([title.to_string(), body.to_string()]);
+        ("osascript", args)
+    } else {
+        let args = ["-a", "montty", "-i", "montty", "--"]
+            .iter()
+            .map(|s| s.to_string())
+            .chain([escape_markup(title), escape_markup(body)])
+            .collect();
+        ("notify-send", args)
     }
 }
 
@@ -87,6 +108,23 @@ fn escape_markup(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn notifier_command_per_os() {
+        let (prog, args) = notifier_command("<b>t</b>", "-x \"q\"");
+        if cfg!(target_os = "macos") {
+            assert_eq!(prog, "osascript");
+            // Title and body are arguments after `--`, never part of the script (no injection,
+            // and a leading '-' is not an option).
+            let n = args.len();
+            assert_eq!(&args[n - 3..], ["--", "<b>t</b>", "-x \"q\""]);
+            assert!(args.iter().take(n - 3).all(|a| !a.contains("<b>")));
+        } else {
+            assert_eq!(prog, "notify-send");
+            assert_eq!(args.last().map(String::as_str), Some("-x \"q\""));
+            assert!(args.contains(&"&lt;b&gt;t&lt;/b&gt;".to_string()));
+        }
+    }
 
     #[test]
     fn markup_is_escaped() {

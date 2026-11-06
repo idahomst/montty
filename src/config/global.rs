@@ -54,7 +54,7 @@ pub struct GlobalConfig {
     /// Dots on tabs and panes that need attention, and their hover labels. The state is
     /// tracked either way.
     pub attention_marks: bool,
-    /// Amber marks also raise a desktop notification (`notify-send`).
+    /// Amber marks also raise a desktop notification (`notify-send`, or `osascript` on macOS).
     pub desktop_notifications: bool,
     /// Answer and honour the kitty keyboard protocol.
     pub kitty_keyboard: bool,
