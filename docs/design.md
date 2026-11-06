@@ -20,7 +20,7 @@ memory. Priority order: **responsiveness > simplicity > features**.
 - Save and load sessions (tab layout, per-pane profile and working directory).
 - Find in the scrollback, clickable URLs (Ctrl+click, Cmd+click on macOS), mouse selection, clipboard and primary selection.
 - Tilix's default shortcuts, all rebindable in `config.toml`.
-- Linux, X11 and Wayland.
+- Linux (X11 and Wayland) and macOS.
 
 ## 3. Non-goals
 
@@ -192,6 +192,12 @@ complete list of actions and defaults is in [config.md](config.md#actions-and-th
 up default to `Ctrl+Alt+Shift+L` and `Ctrl+Alt+Shift+D` (not `Ctrl+Alt+Shift+R`: Cinnamon and GNOME record the screen
 with it).
 
+The `quit` action (Cmd+Q on macOS, unbound on Linux) closes every window. It asks once, and only when processes run,
+counting them across all windows. On macOS the app menu's and the Dock's Quit send `terminate:`; montty adds
+`applicationShouldTerminate:` to winit's `WinitApplicationDelegate`, which returns `NSTerminateCancel` and posts
+`UserEvent::Quit`, then runs the same quit. The focused window's session autosaves as when the last window closes. The
+trade-off: a logout is cancelled once (see the module comment in `src/macos_quit.rs`).
+
 ## 11. Terminal behaviour
 
 - Whatever `alacritty_terminal` supports (truecolor, bracketed paste, mouse reporting, alt screen, OSC 8 hyperlinks,
@@ -199,7 +205,7 @@ with it).
 - Mouse: drag selects, double-click selects a word, triple-click a line, Alt+drag a block, Shift bypasses a program's
   mouse reporting, selecting copies to PRIMARY, middle click pastes it, right-click opens a pane menu (the four
   splits, copy, paste) at the pointer, the wheel scrolls (alternate scroll on the alt screen).
-- Ctrl+click (Cmd+click on macOS) on a URL or OSC 8 link opens it with `xdg-open`.
+- Ctrl+click (Cmd+click on macOS) on a URL or OSC 8 link opens it with `xdg-open` (`open` on macOS).
 - Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
   `input/kitty.rs` encodes keys for all five, so Shift+Enter and other modified keys reach agents distinctly (Claude
   Code >= 2.1.269 uses it). With no flags pushed keys encode as before. Releases and repeats reach

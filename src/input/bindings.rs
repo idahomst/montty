@@ -392,7 +392,7 @@ impl Bindings {
         let mut map = HashMap::new();
         let mut bind = |s: &str, a: Action| {
             let combo: KeyCombo = s.parse().expect("valid built-in key combo");
-            map.insert(combo, a);
+            assert!(map.insert(combo, a).is_none(), "duplicate default {s}");
         };
         bind("Cmd+D", SplitRight);
         bind("Cmd+Shift+D", SplitDown);
@@ -453,7 +453,7 @@ impl Bindings {
         let mut map = HashMap::new();
         let mut bind = |s: &str, a: Action| {
             let combo: KeyCombo = s.parse().expect("valid built-in key combo");
-            map.insert(combo, a);
+            assert!(map.insert(combo, a).is_none(), "duplicate default {s}");
         };
         bind("Ctrl+Alt+R", SplitRight);
         bind("Ctrl+Alt+D", SplitDown);

@@ -3,7 +3,7 @@
 use super::*;
 use crate::layout::Rect;
 use crate::render::RectInstance;
-use crate::ui::confirm::{CANCEL_LABEL, CLOSE_LABEL, Confirm, ConfirmButton};
+use crate::ui::confirm::{CANCEL_LABEL, Confirm, ConfirmButton};
 use crate::ui::menu::{CHECK, Menu, MenuAction};
 use crate::ui::panel::{InfoPanel, PanelRow, more_text};
 use crate::ui::text::{display_width, truncate};
@@ -194,7 +194,7 @@ pub(in crate::window) fn paint_confirm(
         color: theme::to_rgb(theme::TEXT),
         clip: text,
     });
-    for (b, label) in [(cancel, CANCEL_LABEL), (close, CLOSE_LABEL)] {
+    for (b, label) in [(cancel, CANCEL_LABEL), (close, c.confirm_label())] {
         out.labels.push(Label {
             x: b.x + (b.w - display_width(label) as i32 * bm.cell_w) / 2,
             y: b.y + bm.pad,

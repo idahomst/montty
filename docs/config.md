@@ -255,7 +255,7 @@ Ctrl+click (Cmd+click on macOS) opens a link with `xdg-open` (`open` on macOS), 
 hyperlink on the cell or, failing that, a URL found in the text under the pointer (a URL that wraps onto the next
 line counts). Text starting with `www.` also counts as a URL (not when it follows a letter, digit, `.`, `-`, `_`,
 `/` or `@`) and opens as `https://` plus the text. Only these schemes open: `http`, `https`, `ftp`, `file`,
-`mailto`, `gemini`, `gopher`, `git`, `ssh`, `news`, `magnet`, `ipfs`, `ipns`. While Ctrl is held over a link the
+`mailto`, `gemini`, `gopher`, `git`, `ssh`, `news`, `magnet`, `ipfs`, `ipns`. While Ctrl (Cmd on macOS) is held over a link the
 pointer becomes a hand and the link is underlined; if the link's address differs from its text (an OSC 8 link, or a
 `www.` link), a label shows the address. If `xdg-open` can't be started, `montty: xdg-open: <error>` is printed.
 
