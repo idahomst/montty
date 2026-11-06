@@ -366,12 +366,13 @@ mod tests {
     use crate::window::bar::BarPaint;
 
     use super::*;
+    use crate::testutil::native_keys;
     use crate::ui::theme::PANEL_BORDER;
     use crate::window::tabs::Tab;
     use winit::keyboard::{Key, NamedKey};
 
     fn menu_at(anchor_right: i32) -> Menu {
-        Menu::new(menu_items(&Bindings::defaults()), anchor_right, 28)
+        Menu::new(menu_items(&Bindings::linux_defaults()), anchor_right, 28)
     }
 
     fn colored(p: &BarPaint, color: [f32; 4]) -> Vec<Rect> {
@@ -490,7 +491,7 @@ mod tests {
 
     #[test]
     fn menu_lists_new_window_with_shortcut() {
-        let items = menu_items(&Bindings::defaults());
+        let items = menu_items(&Bindings::linux_defaults());
         let row = items.iter().find(|i| i.label == "New window").unwrap();
         assert_eq!(row.shortcut.as_deref(), Some("Ctrl+Shift+N"));
         assert_eq!(row.action, MenuAction::NewWindow);
@@ -498,7 +499,7 @@ mod tests {
 
     #[test]
     fn menu_rows_in_spec_order() {
-        let items = menu_items(&Bindings::defaults());
+        let items = menu_items(&Bindings::linux_defaults());
         let rows: Vec<(&str, Option<&str>, MenuAction)> = items
             .iter()
             .map(|i| (i.label.as_str(), i.shortcut.as_deref(), i.action))
@@ -542,7 +543,7 @@ mod tests {
 
     #[test]
     fn shortcuts_panel_lists_every_binding() {
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         let p = shortcuts_panel(&b);
         assert_eq!(p.title, "Keyboard shortcuts");
         assert_eq!(p.scroll, 0);
@@ -551,7 +552,7 @@ mod tests {
         assert!(p.lines.contains(&new_tab), "{:?}", p.lines);
         assert_eq!(&new_tab[..10], "New tab   ");
         assert_eq!(new_tab.find("Ctrl"), Some(28));
-        let focus = format!("{:<28}{}", "Focus pane 1–10", "Alt+1 … Alt+0");
+        let focus = format!("{:<28}{}", "Focus pane 1–10", native_keys("Alt+1 … Alt+0"));
         assert!(p.lines.contains(&focus), "{:?}", p.lines);
     }
 
@@ -592,14 +593,20 @@ mod tests {
 
     #[test]
     fn numbered_families_collapse() {
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         let rows = shortcut_rows(&b.entries());
         assert!(rows.len() < b.entries().len() - 15, "{}", rows.len());
         let row = |l: &str| rows.iter().find(|(x, _)| x == l).map(|(_, k)| k.as_str());
-        assert_eq!(row("Focus pane 1–10"), Some("Alt+1 … Alt+0"));
-        assert_eq!(row("Go to tab 1–10"), Some("Ctrl+Alt+1 … Ctrl+Alt+0"));
+        assert_eq!(
+            row("Focus pane 1–10"),
+            Some(native_keys("Alt+1 … Alt+0").as_str())
+        );
+        assert_eq!(
+            row("Go to tab 1–10"),
+            Some(native_keys("Ctrl+Alt+1 … Ctrl+Alt+0").as_str())
+        );
         assert_eq!(row("Focus pane 2"), None);
-        assert_eq!(row("Split right"), Some("Ctrl+Alt+R"));
+        assert_eq!(row("Split right"), Some(native_keys("Ctrl+Alt+R").as_str()));
         let at = |l: &str| rows.iter().position(|(x, _)| x == l).unwrap();
         assert!(at("Find previous") < at("Focus pane 1–10"));
         assert!(at("Focus pane 1–10") < at("Focus pane above"));
@@ -622,9 +629,9 @@ mod tests {
         assert_eq!(
             rows,
             [
-                s("Focus pane 1–5", "Alt+1 … Ctrl+5"),
-                s("Go to tab 3", "Ctrl+Alt+3"),
-                s("Split right", "Ctrl+Alt+R"),
+                s("Focus pane 1–5", &native_keys("Alt+1 … Ctrl+5")),
+                s("Go to tab 3", &native_keys("Ctrl+Alt+3")),
+                s("Split right", &native_keys("Ctrl+Alt+R")),
             ]
         );
     }
@@ -751,8 +758,8 @@ mod tests {
                 .map(|i| (i.label, i.shortcut, i.action))
                 .collect()
         };
-        let row = |l: &str, s: Option<&str>, a| (l.to_string(), s.map(String::from), a);
-        let b = Bindings::defaults();
+        let row = |l: &str, s: Option<&str>, a| (l.to_string(), s.map(native_keys), a);
+        let b = Bindings::linux_defaults();
         assert_eq!(
             rows(pane_menu_items(&b, true)),
             [
@@ -781,7 +788,7 @@ mod tests {
     fn pane_menu_shows_rebound_shortcuts() {
         let k = |s: &str| s.parse::<KeyCombo>().unwrap();
         let b = Bindings::with_overrides(
-            Bindings::defaults(),
+            Bindings::linux_defaults(),
             &[
                 (Action::SplitLeft, vec![k("Ctrl+Alt+E")]),
                 (Action::Paste, Vec::new()),
@@ -792,7 +799,10 @@ mod tests {
             let i = items.iter().find(|i| i.label == l).unwrap();
             i.shortcut.as_deref()
         };
-        assert_eq!(shortcut("Split left"), Some("Ctrl+Alt+E"));
+        assert_eq!(
+            shortcut("Split left"),
+            Some(native_keys("Ctrl+Alt+E").as_str())
+        );
         // Unbound: the row stays, without a shortcut.
         assert_eq!(shortcut("Paste"), None);
     }

@@ -325,7 +325,7 @@ mod tests {
     use winit::keyboard::{Key, NamedKey};
 
     fn menu_at(anchor_right: i32) -> Menu {
-        Menu::new(menu_items(&Bindings::defaults()), anchor_right, 28)
+        Menu::new(menu_items(&Bindings::linux_defaults()), anchor_right, 28)
     }
 
     fn colored(p: &BarPaint, color: [f32; 4]) -> Vec<Rect> {
@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn paint_menu_separator_is_a_line() {
         let bm = BarMetrics::test();
-        let m = Menu::new(pane_menu_items(&Bindings::defaults(), true), 400, 28);
+        let m = Menu::new(pane_menu_items(&Bindings::linux_defaults(), true), 400, 28);
         let r = m.rect(&bm);
         let sep = m.item_rects(&bm)[4];
         let p = paint_menu(&m, &bm, 1);
