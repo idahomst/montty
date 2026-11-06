@@ -18,8 +18,8 @@ small, fast and idle-quiet: it is drawn with OpenGL, runs on X11 and Wayland, an
 - **Sessions:** save and reopen a window's tabs, splits, profiles and working directories.
 - **Find, links, clipboard:** search the scrollback, Ctrl+click URLs and OSC 8 links, CLIPBOARD and PRIMARY
   selection, bracketed paste, mouse reporting.
-- **Tilix key bindings** by default, every action rebindable in `config.toml`.
-- Pane size labels while resizing (and on demand with `Ctrl+Alt+S`), a visual bell, color emoji and CJK.
+- **Tilix key bindings** by default (Mac-style ones with Cmd on macOS), every action rebindable in `config.toml`.
+- Pane size labels while resizing (and on demand with `Ctrl+Alt+S`, `Cmd+Option+S` on macOS), a visual bell, color emoji and CJK.
 
 Linux (X11, Wayland) and macOS 11+. Windows is not supported yet.
 

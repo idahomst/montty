@@ -6,8 +6,8 @@ Guide for AI agents working on montty (Claude Code reads it through `CLAUDE.md`)
 
 A tiling terminal emulator inspired by Tilix, in Rust: winit + glutin + glow (OpenGL 3.3 / GLES 3) for the window and
 drawing, `alacritty_terminal` for the VT core and PTY, no GTK/Qt. Supported: Linux, X11 and Wayland. macOS is
-supported too (CI runs both); Windows is not supported. Priority order:
-responsiveness > simplicity > features. Rust edition 2024.
+supported too (CI runs both); Windows is not supported. Priority order: responsiveness > simplicity > features. Rust
+edition 2024.
 
 ## Commands
 
@@ -26,7 +26,7 @@ Top-level modules (`src/`):
 - `main.rs`: entry point. `--decode-image` runs the decoder helper with no event loop; otherwise parse args and run `App`.
 - `cli.rs`: command-line parsing (`--profile`, `--session`, `-e`, `--help`).
 - `app.rs`: the winit `ApplicationHandler`; owns all windows, routes events, computes the event loop's control flow.
-- `windows.rs`: the collection of windows (`Windows<W>`) and the requests a window makes of the app (`AppRequest`: new window, open session).
+- `windows.rs`: the collection of windows (`Windows<W>`) and the requests a window makes of the app (`AppRequest`: new window, open session, quit).
 - `window/`: one OS window (see below).
 - `layout/`: pure data. `geom.rs` (rects, constants) and `tree.rs` (binary split tree: split, close, swap, resize, hit-test).
 - `launch.rs`: what panes take from montty's own environment (shell, macOS locale and start dir).
