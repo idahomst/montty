@@ -41,7 +41,7 @@ pub fn next_pane_id() -> PaneId {
 
 #[derive(Clone)]
 pub struct PaneOptions {
-    /// Program and arguments; `None` (or empty) runs `$SHELL`, else `/bin/sh`.
+    /// Program and arguments; `None` (or empty) runs `$SHELL`, else the account's shell, else `/bin/sh`.
     pub command: Option<Vec<String>>,
     /// `command` is an explicit command (`-e`, a profile's `command`), not a shell.
     pub runs_command: bool,
@@ -104,14 +104,12 @@ impl Pane {
         let shell = match opts.command.as_deref() {
             Some([prog, args @ ..]) => tty::Shell::new(prog.clone(), args.to_vec()),
             _ => {
-                let sh = std::env::var("SHELL")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "/bin/sh".to_string());
+                let sh = crate::launch::env_shell().unwrap_or_else(|| "/bin/sh".to_string());
                 tty::Shell::new(sh, Vec::new())
             }
         };
-        let pty_opts = tty::Options {
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+        let mut pty_opts = tty::Options {
             shell: Some(shell),
             working_directory: opts.working_dir.clone(),
             drain_on_exit: true,
@@ -131,6 +129,11 @@ impl Pane {
             .map(|(k, v)| (k.to_string(), v))
             .collect(),
         };
+        // Finder and the Dock start montty with no locale; Terminal.app sets LC_CTYPE then.
+        #[cfg(target_os = "macos")]
+        if let Some((k, v)) = crate::launch::locale_override(|k| std::env::var(k).ok()) {
+            pty_opts.env.insert(k.to_string(), v.to_string());
+        }
         let pty = {
             // On macOS, PTYs opened from several threads at once fail at random (openpty
             // returns a bogus error; seen in tests/pane.rs). The app spawns panes on the UI

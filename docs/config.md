@@ -352,7 +352,7 @@ opacity = 0.35
 | `scrollback` | integer | `10000` | 0 to 1 000 000 (lines) |
 | `cursor_shape` | string | `"block"` | `"block"`, `"beam"`, `"underline"` |
 | `cursor_blink` | bool | `false` | blink the cursor, see below |
-| `shell` | string | `$SHELL`, else `/bin/sh` | a program path |
+| `shell` | string | `$SHELL`, else the account's shell, else `/bin/sh` | a program path |
 | `login_shell` | bool | `false` (`true` on macOS) | `true` starts the shell with `-l` |
 | `command` | array of strings | none | `["htop"]` runs this instead of a shell; no empty arguments; wins over `shell` |
 | `[colors]` | table | none | see below |
@@ -364,7 +364,7 @@ opacity = 0.35
   line. Out-of-range numbers are errors with their line, and the profile keeps its last good version.
 - `shell`, `login_shell` and `command` apply to panes started after the change; running shells aren't touched.
   Everything else (font, colors, padding, scrollback, cursor, opacity, image) applies to open panes at once.
-- If a profile's `shell` or `command` can't start, the pane runs `$SHELL` (else `/bin/sh`) instead and a toast says why; `montty -e CMD` has no fallback and fails.
+- If a profile's `shell` or `command` can't start, the pane runs `$SHELL` (else the account's shell, else `/bin/sh`) instead and a toast says why; `montty -e CMD` has no fallback and fails.
 - `montty -e CMD ...` runs `CMD` in the first pane instead of the profile's shell or command.
 - The bar, menus, panels and toasts use the default profile's font at its base size; zoom doesn't change them.
 
@@ -503,6 +503,7 @@ A split starts in the focused pane's working directory. A new tab or window star
 montty reads the directory from `/proc/<shell pid>/cwd` when it needs it; it doesn't poll. It doesn't read OSC 7 (the
 escape sequence some shells use to report their directory), because the terminal library montty uses drops it before
 montty sees it. So the directory is the shell's own, wherever it is at that moment.
+On macOS, a pane with no directory of its own starts in `$HOME` when montty was started from Finder or the Dock.
 
 ### Saving
 
