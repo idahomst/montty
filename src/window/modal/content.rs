@@ -71,7 +71,7 @@ pub(in crate::window) fn profile_choice(
 /// Closing `target` closes the window: `Window`, or `Tab` of the only tab.
 pub(in crate::window) fn closes_window(target: &CloseTarget, tabs: &Tabs) -> bool {
     match target {
-        CloseTarget::Window => true,
+        CloseTarget::Window | CloseTarget::App => true,
         CloseTarget::Tab(_) => tabs.len() == 1,
         CloseTarget::Pane(_) => false,
     }
@@ -106,7 +106,7 @@ pub(in crate::window) fn target_alive<P>(
     match *target {
         CloseTarget::Pane(id) => panes.contains_key(&id) && tabs.tab_of(id).is_some(),
         CloseTarget::Tab(id) => tabs.tab_of(id).is_some(),
-        CloseTarget::Window => !tabs.is_empty(),
+        CloseTarget::Window | CloseTarget::App => !tabs.is_empty(),
     }
 }
 
@@ -125,7 +125,9 @@ pub(in crate::window) fn running_in<P>(
             .and_then(|i| tabs.get(i))
             .map(|t| t.tree.panes())
             .unwrap_or_default(),
-        CloseTarget::Window => tabs.iter().flat_map(|t| t.tree.panes()).collect(),
+        CloseTarget::Window | CloseTarget::App => {
+            tabs.iter().flat_map(|t| t.tree.panes()).collect()
+        }
     };
     ids.iter()
         .filter_map(|id| panes.get(id))
@@ -487,6 +489,20 @@ mod tests {
         assert_eq!(running_in(&CloseTarget::Window, &tabs, &idle, |&r| r), 1);
         assert_eq!(running_in(&CloseTarget::Tab(2), &tabs, &idle, |&r| r), 1);
         assert_eq!(running_in(&CloseTarget::Pane(2), &tabs, &idle, |&r| r), 0);
+    }
+
+    #[test]
+    fn app_target_counts_like_window() {
+        let mut tabs = Tabs::new(Tab::new(1, (32, 32)));
+        let mut t = Tab::new(2, (32, 32));
+        t.tree.split(2, crate::layout::Orientation::Horizontal, 3);
+        tabs.push(t);
+        let panes: HashMap<PaneId, bool> = [(1, true), (2, false), (3, true)].into();
+        let n = |t: CloseTarget| running_in(&t, &tabs, &panes, |&r| r);
+        assert_eq!(n(CloseTarget::App), n(CloseTarget::Window));
+        assert_eq!(n(CloseTarget::App), 2);
+        assert!(closes_window(&CloseTarget::App, &tabs));
+        assert!(target_alive(&CloseTarget::App, &tabs, &panes));
     }
 
     #[test]

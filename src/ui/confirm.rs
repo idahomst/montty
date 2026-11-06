@@ -18,6 +18,8 @@ pub enum CloseTarget {
     /// The tab holding this pane (its focused pane when asked).
     Tab(PaneId),
     Window,
+    /// Every window: quitting montty.
+    App,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,6 +47,14 @@ pub fn confirm_message(running: usize) -> String {
     match running {
         1 => "A process is still running. Close anyway?".into(),
         n => format!("{n} processes are still running. Close anyway?"),
+    }
+}
+
+/// The prompt's text for quitting with `running` panes (in any window) that have a foreground job.
+pub fn quit_message(running: usize) -> String {
+    match running {
+        1 => "A process is still running. Quit anyway?".into(),
+        n => format!("{n} processes are still running. Quit anyway?"),
     }
 }
 
@@ -185,6 +195,15 @@ mod tests {
         assert_eq!(c.key(&ch("N")), ConfirmOutcome::No);
         assert_eq!(c.key(&ch("W")), ConfirmOutcome::None);
         assert_eq!(c.key(&Key::Named(NamedKey::Space)), ConfirmOutcome::None);
+    }
+
+    #[test]
+    fn quit_message_counts_processes() {
+        assert_eq!(quit_message(1), "A process is still running. Quit anyway?");
+        assert_eq!(
+            quit_message(3),
+            "3 processes are still running. Quit anyway?"
+        );
     }
 
     #[test]

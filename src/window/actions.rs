@@ -117,6 +117,7 @@ impl Window {
             Action::NewWindow => self.requests.push(AppRequest::NewWindow {
                 profile: self.profile_arg.clone(),
             }),
+            Action::Quit => self.requests.push(AppRequest::Quit { confirmed: false }),
             Action::SaveSession => self.open_save_prompt(),
             Action::OpenSession => self.open_session_menu(),
         }
@@ -289,6 +290,7 @@ impl Window {
                 }
             }
             CloseTarget::Window => self.close_requested = true,
+            CloseTarget::App => self.requests.push(AppRequest::Quit { confirmed: true }),
         }
     }
 

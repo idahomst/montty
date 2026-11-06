@@ -15,7 +15,7 @@ use crate::clipboard::ClipKind;
 use crate::input::Mods;
 use crate::layout::{PaneId, Rect};
 use crate::term::pane::Pane;
-use crate::ui::confirm::{CloseTarget, Confirm, ConfirmOutcome};
+use crate::ui::confirm::{CloseTarget, Confirm, ConfirmOutcome, quit_message};
 use crate::ui::menu::{Menu, MenuAction, MenuItem, MenuOutcome, profile_menu};
 use crate::ui::panel::InfoPanel;
 use crate::ui::textfield::{FieldOutcome, TextField};
@@ -251,6 +251,22 @@ impl Window {
         let (x, y) = self.mouse.pos();
         c.hover(x, y, w, h, &self.bar_metrics());
         self.set_modal(Modal::Confirm(c));
+    }
+
+    /// Ask before quitting montty: `running` counts the panes with a foreground job in every
+    /// window. The prompt's Close asks the app to quit (see `close_target`). A repeat while it
+    /// is open does nothing.
+    pub fn ask_quit(&mut self, running: usize) {
+        if matches!(&self.modal, Modal::Confirm(c) if c.target == CloseTarget::App) {
+            return;
+        }
+        let mut c = Confirm::new(CloseTarget::App, quit_message(running));
+        let (w, h) = self.size_px();
+        let (x, y) = self.mouse.pos();
+        c.hover(x, y, w, h, &self.bar_metrics());
+        self.set_modal(Modal::Confirm(c));
+        // A quit from the Dock or the app menu may come while another app is in front.
+        self.window.focus_window();
     }
 
     /// The prompt's Close: it closes, then its target does unless that is

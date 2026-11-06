@@ -144,6 +144,7 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 | `save_session` | `Ctrl+Shift+S` | `Cmd+S` |
 | `open_session` | `Ctrl+Shift+O` | `Cmd+O` |
 | `new_window` | `Ctrl+Shift+N` | `Cmd+N` |
+| `quit` | | `Cmd+Q` |
 | `copy` | `Ctrl+Shift+C` | `Cmd+C` |
 | `paste` | `Ctrl+Shift+V` | `Cmd+V` |
 | `paste_primary` | `Shift+Insert` | |
@@ -488,6 +489,8 @@ and scrollback are not saved; opening a session starts a fresh shell in every pa
 - `new_window` (`Ctrl+Shift+N`, or `New window` in the ≡ menu) opens another window in the same process, with one
   pane. The pane uses the requesting window's default profile (its `--profile` if it has one) and no `-e` command.
   `-e` applies to the first window only.
+- `quit` closes every window at once; it asks first only when a process is still running in one of them (the count
+  covers all windows). On macOS it is Cmd+Q, the app menu's Quit and the Dock's Quit.
 - Closing the last window exits montty. Windows are independent otherwise (tabs, panes, zoom).
 
 ### Working directory of a new pane

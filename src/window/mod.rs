@@ -69,6 +69,7 @@ use crate::ui::overlay::OverlayTarget;
 use crate::ui::toast::{Toast, ToastSource, ToastUpdate, reload_toast};
 use crate::ui::topbar::{BarMetrics, Target};
 use crate::windows::{AppRequest, WindowInit};
+use modal::running_in;
 use sizes::{QUIET_RESIZE, SizeLabels, visible_resized, window_resize_labels};
 use tabs::{Tab, Tabs};
 
@@ -831,6 +832,17 @@ impl Window {
 
     pub fn has_pane(&self, id: PaneId) -> bool {
         self.panes.contains_key(&id)
+    }
+
+    /// Panes in this window with a foreground job (what a quit asks about).
+    pub fn running_count(&self) -> usize {
+        running_in(&CloseTarget::Window, &self.tabs, &self.panes, |p: &Pane| {
+            p.is_running()
+        })
+    }
+
+    pub fn is_focused(&self) -> bool {
+        self.window_focused
     }
 
     /// The requests made since the last call.

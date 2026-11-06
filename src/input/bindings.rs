@@ -245,6 +245,7 @@ pub enum Action {
     SaveSession,
     OpenSession,
     NewWindow,
+    Quit,
     Copy,
     Paste,
     PastePrimary,
@@ -296,6 +297,7 @@ const TABLE: &[(Action, &str, &str)] = {
         (SaveSession, "save_session", "Save session"),
         (OpenSession, "open_session", "Open session"),
         (NewWindow, "new_window", "New window"),
+        (Quit, "quit", "Quit"),
         (Copy, "copy", "Copy"),
         (Paste, "paste", "Paste"),
         (PastePrimary, "paste_primary", "Paste selection"),
@@ -418,6 +420,7 @@ impl Bindings {
         bind("Cmd+S", SaveSession);
         bind("Cmd+O", OpenSession);
         bind("Cmd+N", NewWindow);
+        bind("Cmd+Q", Quit);
         bind("Cmd+C", Copy);
         bind("Cmd+V", Paste);
         bind("Cmd+A", SelectAll);
@@ -609,6 +612,10 @@ mod tests {
     fn linux_defaults_are_tilix_like() {
         let b = Bindings::linux_defaults();
         assert_eq!(b.lookup(&k("Ctrl+Alt+R")), Some(Action::SplitRight));
+        assert!(
+            b.entries().iter().all(|(_, a)| *a != Action::Quit),
+            "quit is unbound on Linux"
+        );
         assert_eq!(b.lookup(&k("Ctrl+Alt+D")), Some(Action::SplitDown));
         assert_eq!(b.lookup(&k("Ctrl+Alt+A")), Some(Action::SplitAuto));
         // Not Ctrl+Alt+Shift+R: Cinnamon and GNOME record the screen with it.
@@ -728,6 +735,7 @@ mod tests {
             ("Super+Shift+G", Action::FindPrev),
             ("Super+T", Action::NewTab),
             ("Super+N", Action::NewWindow),
+            ("Super+Q", Action::Quit),
             ("Super+W", Action::ClosePane),
             ("Super+Shift+W", Action::CloseTab),
             ("Super+Shift+]", Action::NextTab),
@@ -936,6 +944,7 @@ mod tests {
             SaveSession,
             OpenSession,
             NewWindow,
+            Quit,
             Copy,
             Paste,
             PastePrimary,
@@ -959,7 +968,7 @@ mod tests {
                 | FocusLeft | FocusRight | NextPane | PrevPane | ResizeUp | ResizeDown
                 | ResizeLeft | ResizeRight | MaximizePane | ClosePane | NewTab | CloseTab
                 | NextTab | PrevTab | MoveTabLeft | MoveTabRight | SaveSession | OpenSession
-                | NewWindow | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
+                | NewWindow | Quit | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
                 | FindPrev | ScrollLineUp | ScrollLineDown | ScrollPageUp | ScrollPageDown
                 | ZoomIn | ZoomOut | ZoomReset | Fullscreen | ShowSizes => {}
                 FocusPane(_) | GoToTab(_) => unreachable!(),
