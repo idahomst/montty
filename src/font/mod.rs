@@ -287,11 +287,22 @@ fn is_emoji_cp(ch: char) -> bool {
         0x2600..=0x27BF | 0x2B00..=0x2BFF | 0x1F000..=0x1FAFF)
 }
 
+/// Pixels per point at scale 1: X11 and Wayland lay out at 96 dpi; a macOS logical pixel is
+/// already a point, so 11 pt matches other Mac apps.
+#[cfg(not(target_os = "macos"))]
+pub(crate) const PX_PER_PT: f64 = 96.0 / 72.0;
+#[cfg(target_os = "macos")]
+pub(crate) const PX_PER_PT: f64 = 1.0;
+
+fn font_px(size_pt: f32, scale: f64) -> f32 {
+    (f64::from(size_pt) * PX_PER_PT * scale) as f32
+}
+
 impl FontSet {
     pub fn load(spec: &FontSpec, scale: f64, db: Arc<fontdb::Database>) -> Result<FontSet, String> {
         let family = resolve_family(&spec.family, &db)
             .ok_or_else(|| format!("no font found for family '{}'", spec.family))?;
-        let px = (spec.size_pt as f64 * 96.0 / 72.0 * scale) as f32;
+        let px = font_px(spec.size_pt, scale);
 
         let mut primary: [Option<Face>; 4] = [None, None, None, None];
         let mut regular_id = None;
@@ -737,6 +748,18 @@ mod tests {
         let after_first = runs();
         assert_eq!(resolve_family("monospace", &db), mono);
         assert_eq!(runs(), after_first);
+    }
+
+    #[test]
+    fn points_to_pixels_per_os() {
+        // Linux: 96 dpi; macOS: a logical pixel is a point.
+        let want = if cfg!(target_os = "macos") {
+            24.0
+        } else {
+            32.0
+        };
+        assert_eq!(font_px(12.0, 2.0), want);
+        assert_eq!(font_px(12.0, 1.0), want / 2.0);
     }
 
     #[test]

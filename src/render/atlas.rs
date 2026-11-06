@@ -319,13 +319,14 @@ mod tests {
         assert_eq!(t.resizes, vec![64]);
     }
 
+    /// `pt` at 96 dpi on every OS: the atlas sizes below are tuned to those glyph sizes.
     fn load_pt(pt: f32) -> FontSet {
         FontSet::load(
             &FontSpec {
                 size_pt: pt,
                 ..FontSpec::default()
             },
-            1.0,
+            96.0 / 72.0 / crate::font::PX_PER_PT,
             system_db(),
         )
         .expect("font load")
