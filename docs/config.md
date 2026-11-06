@@ -70,6 +70,10 @@ desktop_notifications = false
 # Default: true. Applies live; open panes drop the flags their program had pushed when it changes.
 kitty_keyboard = true
 
+# macOS: which Option key is Alt: "left", "right", "both" or "none". Alt for the shell (Alt+B / Alt+F, Meta in Emacs);
+# the other Option key types special characters such as `@` on a Czech layout. Default: "left". Applies live.
+option_as_alt = "left"
+
 # Key bindings. Only list what you want to change.
 [keybindings]
 split_right = "Ctrl+Alt+E"                    # one combo

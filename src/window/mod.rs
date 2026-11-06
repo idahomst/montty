@@ -272,6 +272,21 @@ pub(super) fn profile_delta(old: &Resolved, new: &Resolved) -> ProfileDelta {
     }
 }
 
+/// macOS: the winit setting for the config's Option key choice.
+#[cfg(target_os = "macos")]
+fn winit_option_as_alt(
+    o: crate::config::global::OptionAsAlt,
+) -> winit::platform::macos::OptionAsAlt {
+    use crate::config::global::OptionAsAlt as C;
+    use winit::platform::macos::OptionAsAlt as W;
+    match o {
+        C::Left => W::OnlyLeft,
+        C::Right => W::OnlyRight,
+        C::Both => W::Both,
+        C::None => W::None,
+    }
+}
+
 /// The cursor a profile starts its terminals with.
 fn cursor_style(p: &Profile) -> CursorStyle {
     let shape = match p.cursor_shape {
@@ -538,6 +553,10 @@ pub struct Window {
     /// The config errors the last toast showed (empty after a clean reload).
     toast_errors: Vec<ConfigError>,
     modifiers: ModifiersState,
+    /// Left and right Option held: only the `option_as_alt` side is Alt for the terminal;
+    /// the other types the layout's character (winit reports Alt for both).
+    #[cfg(target_os = "macos")]
+    option_sides: (bool, bool),
     links: links::LinkState,
     /// The open find bar and its search; closed by a click on a pane, a tab switch,
     /// the pane's close or focus moving off it.
@@ -677,6 +696,7 @@ impl Window {
                 .with_title_hidden(true)
                 .with_titlebar_buttons_hidden(true)
                 .with_fullsize_content_view(true)
+                .with_option_as_alt(winit_option_as_alt(store.global().option_as_alt))
         };
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
         #[cfg(target_os = "macos")]
@@ -772,6 +792,8 @@ impl Window {
             image_limit,
             toast_errors,
             modifiers: ModifiersState::empty(),
+            #[cfg(target_os = "macos")]
+            option_sides: (false, false),
             links: links::LinkState::new(),
             find: None,
             window_focused: true,
@@ -927,6 +949,11 @@ impl Window {
             }
             WindowEvent::ModifiersChanged(m) => {
                 self.modifiers = m.state();
+                #[cfg(target_os = "macos")]
+                {
+                    use winit::keyboard::ModifiersKeyState::Pressed;
+                    self.option_sides = (m.lalt_state() == Pressed, m.ralt_state() == Pressed);
+                }
                 self.update_link_hover();
             }
             // winit sends synthetic presses for keys already held when the window gains
@@ -1183,6 +1210,12 @@ impl Window {
             || !report.removed.is_empty();
         if report.global_changed {
             self.schedule();
+            #[cfg(target_os = "macos")]
+            {
+                use winit::platform::macos::WindowExtMacOS;
+                self.window
+                    .set_option_as_alt(winit_option_as_alt(self.store.global().option_as_alt));
+            }
         }
         match reload_toast(
             self.toast.as_ref().map(|t| t.source),
@@ -1365,6 +1398,15 @@ impl Window {
             self.perform(action);
             return;
         }
+        // Bindings see Alt on either Option key; the terminal only on the option_as_alt side.
+        #[cfg(target_os = "macos")]
+        let mods = Mods {
+            alt: mods.alt && {
+                let (left, right) = self.option_sides;
+                self.store.global().option_as_alt.is_alt(left, right)
+            },
+            ..mods
+        };
         let Some(pane) = self.panes.get(&focused) else {
             return;
         };
