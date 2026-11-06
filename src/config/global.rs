@@ -20,6 +20,20 @@ pub enum OptionAsAlt {
     None,
 }
 
+impl OptionAsAlt {
+    /// Whether the held Option keys act as Alt. When the OS didn't say which side is held,
+    /// both count, so Left and Right keep Alt rather than drop it.
+    pub fn is_alt(self, left: bool, right: bool) -> bool {
+        let unknown = !left && !right;
+        match self {
+            OptionAsAlt::Left => left || unknown,
+            OptionAsAlt::Right => right || unknown,
+            OptionAsAlt::Both => true,
+            OptionAsAlt::None => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlobalConfig {
     pub default_profile: String,
@@ -319,6 +333,23 @@ mod tests {
         let c = GlobalConfig::parse("kitty_keyboard = false", p()).unwrap();
         assert!(!c.kitty_keyboard);
         assert!(GlobalConfig::parse("kitty_keyboard = 3", p()).is_err());
+    }
+
+    #[test]
+    fn option_as_alt_is_alt_per_side() {
+        use OptionAsAlt::*;
+        for (o, left, right, want) in [
+            (Left, true, false, true),
+            (Left, false, true, false),
+            (Right, true, false, false),
+            (Right, false, true, true),
+            (Both, false, true, true),
+            (None, true, false, false),
+            (Left, false, false, true),
+            (None, false, false, false),
+        ] {
+            assert_eq!(o.is_alt(left, right), want, "{o:?} {left} {right}");
+        }
     }
 
     #[test]

@@ -553,6 +553,10 @@ pub struct Window {
     /// The config errors the last toast showed (empty after a clean reload).
     toast_errors: Vec<ConfigError>,
     modifiers: ModifiersState,
+    /// Left and right Option held: only the `option_as_alt` side is Alt for the terminal;
+    /// the other types the layout's character (winit reports Alt for both).
+    #[cfg(target_os = "macos")]
+    option_sides: (bool, bool),
     links: links::LinkState,
     /// The open find bar and its search; closed by a click on a pane, a tab switch,
     /// the pane's close or focus moving off it.
@@ -788,6 +792,8 @@ impl Window {
             image_limit,
             toast_errors,
             modifiers: ModifiersState::empty(),
+            #[cfg(target_os = "macos")]
+            option_sides: (false, false),
             links: links::LinkState::new(),
             find: None,
             window_focused: true,
@@ -943,6 +949,11 @@ impl Window {
             }
             WindowEvent::ModifiersChanged(m) => {
                 self.modifiers = m.state();
+                #[cfg(target_os = "macos")]
+                {
+                    use winit::keyboard::ModifiersKeyState::Pressed;
+                    self.option_sides = (m.lalt_state() == Pressed, m.ralt_state() == Pressed);
+                }
                 self.update_link_hover();
             }
             // winit sends synthetic presses for keys already held when the window gains
@@ -1387,6 +1398,15 @@ impl Window {
             self.perform(action);
             return;
         }
+        // Bindings see Alt on either Option key; the terminal only on the option_as_alt side.
+        #[cfg(target_os = "macos")]
+        let mods = Mods {
+            alt: mods.alt && {
+                let (left, right) = self.option_sides;
+                self.store.global().option_as_alt.is_alt(left, right)
+            },
+            ..mods
+        };
         let Some(pane) = self.panes.get(&focused) else {
             return;
         };
