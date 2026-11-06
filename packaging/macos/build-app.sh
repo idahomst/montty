@@ -23,19 +23,27 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 install -m755 "$binary" "$app/Contents/MacOS/montty"
 sed "s/@VERSION@/$version/g" packaging/macos/Info.plist > "$app/Contents/Info.plist"
 
-# iconutil wants name@2x pairs; there is no 1024 px source, so no icon_512x512@2x.
+# macOS icons keep a transparent margin (Apple's grid: an 824 px tile on a 1024 px canvas);
+# the hicolor tile fills its square and would look a size too big in the Dock. Each entry is
+# the 512 px icon shrunk to that share and padded back out. iconutil wants name@2x pairs;
+# there is no 1024 px source, so no icon_512x512@2x.
 iconset=$stage/montty.iconset
 mkdir -p "$iconset"
-png() { echo "assets/icon/hicolor/$1x$1/apps/montty.png"; }
-cp "$(png 16)" "$iconset/icon_16x16.png"
-cp "$(png 32)" "$iconset/icon_16x16@2x.png"
-cp "$(png 32)" "$iconset/icon_32x32.png"
-cp "$(png 64)" "$iconset/icon_32x32@2x.png"
-cp "$(png 128)" "$iconset/icon_128x128.png"
-cp "$(png 256)" "$iconset/icon_128x128@2x.png"
-cp "$(png 256)" "$iconset/icon_256x256.png"
-cp "$(png 512)" "$iconset/icon_256x256@2x.png"
-cp "$(png 512)" "$iconset/icon_512x512.png"
+icon() { # <pixels> <name>
+    local tile=$(( $1 * 824 / 1024 ))
+    sips -s format png -z "$tile" "$tile" assets/icon/hicolor/512x512/apps/montty.png \
+        --out "$stage/tile.png" >/dev/null
+    sips -p "$1" "$1" "$stage/tile.png" --out "$iconset/$2.png" >/dev/null
+}
+icon 16 icon_16x16
+icon 32 icon_16x16@2x
+icon 32 icon_32x32
+icon 64 icon_32x32@2x
+icon 128 icon_128x128
+icon 256 icon_128x128@2x
+icon 256 icon_256x256
+icon 512 icon_256x256@2x
+icon 512 icon_512x512
 iconutil -c icns -o "$app/Contents/Resources/montty.icns" "$iconset"
 
 # Ad-hoc: no Developer ID yet (see docs/install.md for the first launch).
