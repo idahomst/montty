@@ -23,6 +23,8 @@ pub enum UserEvent {
     /// the image's path as its profile names it, the request id, and the image, downscaled, or why it
     /// failed.
     ImageLoaded(WindowId, PathBuf, u64, Result<Arc<Rgba8>, String>),
+    /// macOS: the app menu's or the Dock's Quit (see `macos_quit`).
+    Quit,
 }
 
 pub trait EventSink: Send + Sync + 'static {

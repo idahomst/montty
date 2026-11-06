@@ -236,6 +236,11 @@ impl ApplicationHandler<UserEvent> for App {
                 w.image_loaded(path, n, img);
                 true
             }),
+            UserEvent::Quit => {
+                if let Some(id) = self.windows.pick(|w| w.is_focused()) {
+                    self.quit(el, id, false);
+                }
+            }
         }
     }
 
