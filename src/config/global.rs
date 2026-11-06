@@ -10,6 +10,16 @@ use super::{ConfigError, line_of, parse_color, short_unknown_key};
 use crate::input::bindings::{Action, Bindings, KeyCombo};
 use crate::term::colors::Rgb;
 
+/// Which Option key (macOS) acts as Alt in the terminal; the other types its special
+/// characters. Ignored elsewhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OptionAsAlt {
+    Left,
+    Right,
+    Both,
+    None,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct GlobalConfig {
     pub default_profile: String,
@@ -34,6 +44,8 @@ pub struct GlobalConfig {
     pub desktop_notifications: bool,
     /// Answer and honour the kitty keyboard protocol.
     pub kitty_keyboard: bool,
+    /// macOS: which Option key is Alt (see OptionAsAlt).
+    pub option_as_alt: OptionAsAlt,
     pub bindings: Bindings,
 }
 
@@ -60,6 +72,7 @@ impl Default for GlobalConfig {
             attention_marks: true,
             desktop_notifications: false,
             kitty_keyboard: true,
+            option_as_alt: OptionAsAlt::Left,
             bindings: Bindings::defaults(),
         }
     }
@@ -79,6 +92,7 @@ struct Raw {
     attention_marks: Option<bool>,
     desktop_notifications: Option<bool>,
     kitty_keyboard: Option<bool>,
+    option_as_alt: Option<Spanned<String>>,
     keybindings: Option<BTreeMap<String, Spanned<toml::Value>>>,
 }
 
@@ -133,6 +147,22 @@ impl GlobalConfig {
             .desktop_notifications
             .unwrap_or(cfg.desktop_notifications);
         cfg.kitty_keyboard = raw.kitty_keyboard.unwrap_or(cfg.kitty_keyboard);
+        if let Some(v) = raw.option_as_alt {
+            cfg.option_as_alt = match v.get_ref().as_str() {
+                "left" => OptionAsAlt::Left,
+                "right" => OptionAsAlt::Right,
+                "both" => OptionAsAlt::Both,
+                "none" => OptionAsAlt::None,
+                other => {
+                    return Err(err(
+                        Some(v.span().start),
+                        format!(
+                            "option_as_alt must be \"left\", \"right\", \"both\" or \"none\", got {other:?}"
+                        ),
+                    ));
+                }
+            };
+        }
         // Validate in file order so the first error in the file is the one reported.
         let mut entries: Vec<_> = raw.keybindings.into_iter().flatten().collect();
         entries.sort_by_key(|(_, v)| v.span().start);
@@ -289,6 +319,32 @@ mod tests {
         let c = GlobalConfig::parse("kitty_keyboard = false", p()).unwrap();
         assert!(!c.kitty_keyboard);
         assert!(GlobalConfig::parse("kitty_keyboard = 3", p()).is_err());
+    }
+
+    #[test]
+    fn option_as_alt_defaults_left_and_parses() {
+        let p = |s: &str| GlobalConfig::parse(s, Path::new("config.toml"));
+        assert_eq!(p("").unwrap().option_as_alt, OptionAsAlt::Left);
+        for (v, want) in [
+            ("left", OptionAsAlt::Left),
+            ("right", OptionAsAlt::Right),
+            ("both", OptionAsAlt::Both),
+            ("none", OptionAsAlt::None),
+        ] {
+            assert_eq!(
+                p(&format!("option_as_alt = \"{v}\""))
+                    .unwrap()
+                    .option_as_alt,
+                want
+            );
+        }
+        let e = p("\noption_as_alt = \"yes\"").unwrap_err();
+        assert_eq!(e.line, Some(2));
+        assert!(
+            e.msg.contains("\"left\", \"right\", \"both\" or \"none\""),
+            "{}",
+            e.msg
+        );
     }
 
     #[test]
