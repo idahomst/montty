@@ -99,7 +99,7 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - An unknown action name is an error: `` unknown action `splt_right` in [keybindings] ``.
 - Digit keys also match by position on the number row, so `Alt+1` works on layouts (such as Czech) where the
   unshifted digit row types other characters.
-- The mouse gestures (selection, middle click paste, the right-click menu, Ctrl+click links; see "Mouse and
+- The mouse gestures (selection, middle click paste, the right-click menu, Ctrl+click links (Cmd+click on macOS); see "Mouse and
   clipboard") aren't configurable.
 
 ### Actions and their default keys
@@ -246,7 +246,7 @@ selection there, so each Shift+click or Shift+drag starts a new one.
 
 ### Links
 
-Ctrl+click opens a link with `xdg-open` (`open` on macOS), even while the program has mouse reporting on. A link is either an OSC 8
+Ctrl+click (Cmd+click on macOS) opens a link with `xdg-open` (`open` on macOS), even while the program has mouse reporting on. A link is either an OSC 8
 hyperlink on the cell or, failing that, a URL found in the text under the pointer (a URL that wraps onto the next
 line counts). Text starting with `www.` also counts as a URL (not when it follows a letter, digit, `.`, `-`, `_`,
 `/` or `@`) and opens as `https://` plus the text. Only these schemes open: `http`, `https`, `ftp`, `file`,
