@@ -54,6 +54,8 @@ Top-level modules (`src/`):
   abort on panic, so a decoder crash or hang must only kill the child.
 - `frame.rs`: refresh-capped frame scheduler. `device_events.rs`: turns off winit's raw device events.
   `window_menu.rs`: asks the window manager for its window menu (right click on the empty bar).
+- `macos_quit.rs` (macOS): the app menu's / Dock's Quit runs montty's `quit`. `objc.rs` (macOS): the Objective-C
+  runtime calls for that and `window/titlebar.rs`.
 
 `src/window/` files (a `Window` is split across them by concern):
 

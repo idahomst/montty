@@ -217,7 +217,11 @@ mod tests {
         let c = GlobalConfig::parse("", p()).unwrap();
         assert_eq!(c, GlobalConfig::default());
         assert_eq!(
-            c.bindings.lookup(&k("Ctrl+Alt+R")),
+            c.bindings.lookup(&k(if cfg!(target_os = "macos") {
+                "Cmd+D"
+            } else {
+                "Ctrl+Alt+R"
+            })),
             Some(Action::SplitRight)
         );
         assert_eq!(c.default_profile, "default");

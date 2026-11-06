@@ -1,5 +1,6 @@
-//! Links under the pointer: while Ctrl is held the link there is underlined (the
-//! pointer becomes a hand) and a Ctrl+left press opens it with `xdg-open` (`open` on macOS).
+//! Links under the pointer: while Ctrl (Cmd on macOS) is held the link there is underlined
+//! (the pointer becomes a hand) and a Ctrl+left press (Cmd+left on macOS) opens it with
+//! `xdg-open` (`open` on macOS).
 
 use std::ffi::OsStr;
 use std::process::{Command, Stdio};
@@ -64,12 +65,22 @@ impl Window {
         self.set_cursor_icon(pointer_icon(link, divider));
     }
 
+    /// The modifier that turns a click into "open the link": Ctrl, or Cmd on macOS, where
+    /// Ctrl+click is a right click.
+    fn link_modifier_held(&self) -> bool {
+        if cfg!(target_os = "macos") {
+            self.modifiers.super_key()
+        } else {
+            self.modifiers.control_key()
+        }
+    }
+
     /// Recompute the hovered link: on pointer motion and when the modifiers change.
-    /// Nothing is searched unless Ctrl is held.
+    /// Nothing is searched unless Ctrl (Cmd on macOS) is held.
     pub(super) fn update_link_hover(&mut self) {
         // Not during a drag (a divider's or a selection's): a hand would promise a click
         // that isn't coming.
-        let hover = if self.modifiers.control_key() && !self.mouse.dragging() {
+        let hover = if self.link_modifier_held() && !self.mouse.dragging() {
             self.link_under_pointer()
         } else {
             None
@@ -85,10 +96,10 @@ impl Window {
         }
     }
 
-    /// A Ctrl+left press on a link whose scheme is allowed opens it and is consumed:
-    /// no selection starts. Any other press is left to the normal handling.
+    /// A Ctrl+left press (Cmd+left on macOS) on a link whose scheme is allowed opens it and
+    /// is consumed: no selection starts. Any other press is left to the normal handling.
     pub(super) fn link_press(&mut self) -> bool {
-        if !self.modifiers.control_key() {
+        if !self.link_modifier_held() {
             return false;
         }
         // `link_at` only finds links whose scheme may open.

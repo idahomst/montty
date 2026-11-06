@@ -9,7 +9,11 @@ pub mod font;
 pub mod frame;
 pub mod input;
 pub mod layout;
+#[cfg(target_os = "macos")]
+pub mod macos_quit;
 pub mod notify;
+#[cfg(target_os = "macos")]
+mod objc;
 pub mod render;
 pub mod session;
 pub mod term;

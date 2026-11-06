@@ -42,3 +42,14 @@ impl Drop for TempDir {
         let _ = fs::remove_dir_all(&self.0);
     }
 }
+
+/// Linux key text ("Ctrl+Alt+R") as this OS shows it: Option and Cmd on macOS. For tests that
+/// check shortcut text built from `KeyCombo`'s `Display`.
+#[cfg(test)]
+pub fn native_keys(linux: &str) -> String {
+    if cfg!(target_os = "macos") {
+        linux.replace("Alt", "Option").replace("Super", "Cmd")
+    } else {
+        linux.to_string()
+    }
+}

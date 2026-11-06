@@ -180,8 +180,8 @@ impl Window {
             self.selection_motion();
             return;
         }
-        // Ctrl over a link is for montty: the program gets no motion for it (unless a
-        // reported button is held).
+        // Ctrl (Cmd on macOS) over a link is for montty: the program gets no motion for it
+        // (unless a reported button is held).
         self.update_link_hover();
         if (!self.mouse.held.is_empty() || self.links.hover.is_none()) && self.report_motion() {
             return;
@@ -258,9 +258,9 @@ impl Window {
     }
 
     /// A press goes to the first of these that takes it, in order. The modal takes every
-    /// press; Ctrl+click on a link comes before mouse reporting, so it opens the link even
-    /// for a program that asked for mouse events. While a divider is dragged, a press of
-    /// another button skips straight to the panes.
+    /// press; Ctrl+click (Cmd+click on macOS) on a link comes before mouse reporting, so it
+    /// opens the link even for a program that asked for mouse events. While a divider is
+    /// dragged, a press of another button skips straight to the panes.
     fn mouse_press(&mut self, button: MouseButton) {
         if self.modal_open() {
             self.modal_press(button);

@@ -141,10 +141,34 @@ impl App {
         }
     }
 
+    /// Quit: with a process running in any window (and not `confirmed`), window `from` asks
+    /// first; else every window closes and the loop exits. `from` is the one saved for
+    /// `restore_last_session`, as the last window closed would be.
+    pub(crate) fn quit(&mut self, el: &ActiveEventLoop, from: WindowId, confirmed: bool) {
+        let running: usize = self
+            .windows
+            .iter_mut()
+            .map(|(_, w)| w.running_count())
+            .sum();
+        if !confirmed && running > 0 {
+            if let Some(w) = self.windows.get_mut(from) {
+                w.ask_quit(running);
+            }
+            return;
+        }
+        if let Some(w) = self.windows.get_mut(from) {
+            w.save_on_leave();
+        }
+        // Dropping each makes its GL context current to free its GL objects.
+        self.windows.clear();
+        el.exit();
+    }
+
     /// A request from window `from`. A window that fails to open is reported in `from`
     /// (the process lives on).
     fn serve(&mut self, el: &ActiveEventLoop, from: WindowId, r: AppRequest) {
         let init = match r {
+            AppRequest::Quit { confirmed } => return self.quit(el, from, confirmed),
             AppRequest::NewWindow { profile } => WindowInit::Default {
                 profile,
                 command: None,
@@ -212,6 +236,11 @@ impl ApplicationHandler<UserEvent> for App {
                 w.image_loaded(path, n, img);
                 true
             }),
+            UserEvent::Quit => {
+                if let Some(id) = self.windows.pick(|w| w.is_focused()) {
+                    self.quit(el, id, false);
+                }
+            }
         }
     }
 

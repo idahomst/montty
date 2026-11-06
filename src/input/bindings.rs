@@ -57,6 +57,8 @@ const NAMED: &[(&str, NamedKey, &str)] = {
         ("end", End, "End"),
         ("tab", Tab, "Tab"),
         ("escape", Escape, "Escape"),
+        ("enter", Enter, "Enter"),
+        ("return", Enter, "Enter"),
         ("f1", F1, "F1"),
         ("f2", F2, "F2"),
         ("f3", F3, "F3"),
@@ -101,36 +103,72 @@ fn physical_digit(physical: PhysicalKey) -> Option<char> {
     })
 }
 
-/// "Ctrl+Alt+R", "Shift+PageUp", "Ctrl+plus": parses back to the same combo.
+/// Modifier names: Linux's, or the Mac's (Cmd for Super, Option for Alt, in Apple's order).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyLabels {
+    Linux,
+    Mac,
+}
+
+impl KeyLabels {
+    /// The names shown in this OS's shortcuts list and errors.
+    pub const NATIVE: KeyLabels = if cfg!(target_os = "macos") {
+        KeyLabels::Mac
+    } else {
+        KeyLabels::Linux
+    };
+}
+
+impl KeyCombo {
+    /// "Ctrl+Alt+R" (Linux) or "Option+Shift+Cmd+D" (Mac): parses back to the same combo.
+    pub fn label(&self, labels: KeyLabels) -> String {
+        let m = &self.mods;
+        let mods: [(bool, &str); 4] = match labels {
+            KeyLabels::Linux => [
+                (m.ctrl, "Ctrl"),
+                (m.alt, "Alt"),
+                (m.shift, "Shift"),
+                (m.logo, "Super"),
+            ],
+            KeyLabels::Mac => [
+                (m.ctrl, "Ctrl"),
+                (m.alt, "Option"),
+                (m.shift, "Shift"),
+                (m.logo, "Cmd"),
+            ],
+        };
+        let mut s = String::new();
+        for (on, name) in mods {
+            if on {
+                s.push_str(name);
+                s.push('+');
+            }
+        }
+        s.push_str(&key_label(&self.key));
+        s
+    }
+}
+
+fn key_label(key: &KeyName) -> String {
+    match key {
+        KeyName::Char('+') => "plus".into(),
+        KeyName::Char('-') => "minus".into(),
+        // Uppercase only when it parses back to `c` ('ß' would become "SS").
+        KeyName::Char(c) => {
+            let mut up = c.to_uppercase();
+            match (up.next(), up.next()) {
+                (Some(u), None) if u.to_lowercase().eq([*c]) => u.to_string(),
+                _ => c.to_string(),
+            }
+        }
+        // Every key `parse_named` accepts has a label; the debug form is a fallback only.
+        KeyName::Named(n) => named_label(*n).map_or_else(|| format!("{n:?}"), str::to_string),
+    }
+}
+
 impl fmt::Display for KeyCombo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (on, name) in [
-            (self.mods.ctrl, "Ctrl"),
-            (self.mods.alt, "Alt"),
-            (self.mods.shift, "Shift"),
-            (self.mods.logo, "Super"),
-        ] {
-            if on {
-                write!(f, "{name}+")?;
-            }
-        }
-        match &self.key {
-            KeyName::Char('+') => f.write_str("plus"),
-            KeyName::Char('-') => f.write_str("minus"),
-            // Uppercase only when it parses back to `c` ('ß' would become "SS").
-            KeyName::Char(c) => {
-                let mut up = c.to_uppercase();
-                match (up.next(), up.next()) {
-                    (Some(u), None) if u.to_lowercase().eq([*c]) => write!(f, "{u}"),
-                    _ => write!(f, "{c}"),
-                }
-            }
-            // Every key `parse_named` accepts has a label; the debug form is a fallback only.
-            KeyName::Named(n) => match named_label(*n) {
-                Some(s) => f.write_str(s),
-                None => write!(f, "{n:?}"),
-            },
-        }
+        f.write_str(&self.label(KeyLabels::NATIVE))
     }
 }
 
@@ -146,9 +184,9 @@ impl FromStr for KeyCombo {
         for m in mod_parts {
             match m.to_lowercase().as_str() {
                 "ctrl" | "control" => mods.ctrl = true,
-                "alt" => mods.alt = true,
+                "alt" | "option" | "opt" => mods.alt = true,
                 "shift" => mods.shift = true,
-                "super" | "logo" | "meta" => mods.logo = true,
+                "super" | "logo" | "meta" | "cmd" | "command" => mods.logo = true,
                 other => return Err(format!("unknown modifier {other:?} in {s:?}")),
             }
         }
@@ -207,6 +245,7 @@ pub enum Action {
     SaveSession,
     OpenSession,
     NewWindow,
+    Quit,
     Copy,
     Paste,
     PastePrimary,
@@ -258,6 +297,7 @@ const TABLE: &[(Action, &str, &str)] = {
         (SaveSession, "save_session", "Save session"),
         (OpenSession, "open_session", "Open session"),
         (NewWindow, "new_window", "New window"),
+        (Quit, "quit", "Quit"),
         (Copy, "copy", "Copy"),
         (Paste, "paste", "Paste"),
         (PastePrimary, "paste_primary", "Paste selection"),
@@ -336,7 +376,79 @@ pub struct Bindings {
 }
 
 impl Bindings {
+    /// This OS's built-in bindings.
     pub fn defaults() -> Bindings {
+        if cfg!(target_os = "macos") {
+            Bindings::macos_defaults()
+        } else {
+            Bindings::linux_defaults()
+        }
+    }
+
+    /// Mac-style built-ins: Cmd where Linux has Ctrl+Shift, after Terminal.app and iTerm2.
+    /// Ctrl without Cmd stays the shell's. Cmd+Q is the app menu's (see `macos_quit`).
+    pub fn macos_defaults() -> Bindings {
+        use Action::*;
+        let mut map = HashMap::new();
+        let mut bind = |s: &str, a: Action| {
+            let combo: KeyCombo = s.parse().expect("valid built-in key combo");
+            map.insert(combo, a);
+        };
+        bind("Cmd+D", SplitRight);
+        bind("Cmd+Shift+D", SplitDown);
+        bind("Cmd+Option+D", SplitLeft);
+        bind("Cmd+Option+Shift+D", SplitUp);
+        bind("Cmd+Shift+A", SplitAuto);
+        bind("Cmd+Option+Up", FocusUp);
+        bind("Cmd+Option+Down", FocusDown);
+        bind("Cmd+Option+Left", FocusLeft);
+        bind("Cmd+Option+Right", FocusRight);
+        bind("Cmd+]", NextPane);
+        bind("Cmd+[", PrevPane);
+        bind("Cmd+Ctrl+Up", ResizeUp);
+        bind("Cmd+Ctrl+Down", ResizeDown);
+        bind("Cmd+Ctrl+Left", ResizeLeft);
+        bind("Cmd+Ctrl+Right", ResizeRight);
+        bind("Cmd+Shift+Enter", MaximizePane);
+        bind("Cmd+W", ClosePane);
+        bind("Cmd+T", NewTab);
+        bind("Cmd+Shift+W", CloseTab);
+        bind("Cmd+Shift+]", NextTab);
+        bind("Cmd+Shift+[", PrevTab);
+        bind("Cmd+Shift+Left", MoveTabLeft);
+        bind("Cmd+Shift+Right", MoveTabRight);
+        bind("Cmd+S", SaveSession);
+        bind("Cmd+O", OpenSession);
+        bind("Cmd+N", NewWindow);
+        bind("Cmd+Q", Quit);
+        bind("Cmd+C", Copy);
+        bind("Cmd+V", Paste);
+        bind("Cmd+A", SelectAll);
+        bind("Cmd+F", Find);
+        bind("Cmd+G", FindNext);
+        bind("Cmd+Shift+G", FindPrev);
+        bind("Cmd+Up", ScrollLineUp);
+        bind("Cmd+Down", ScrollLineDown);
+        bind("Shift+PageUp", ScrollPageUp);
+        bind("Shift+PageDown", ScrollPageDown);
+        bind("Cmd+plus", ZoomIn);
+        bind("Cmd+=", ZoomIn);
+        bind("Cmd+minus", ZoomOut);
+        bind("Cmd+0", ZoomReset);
+        bind("Cmd+Ctrl+F", Fullscreen);
+        bind("Cmd+Option+S", ShowSizes);
+        for n in 1..=9u8 {
+            bind(&format!("Cmd+{n}"), GoToTab(n));
+        }
+        for n in 0..=9u8 {
+            let slot = if n == 0 { 10 } else { n };
+            bind(&format!("Cmd+Option+{n}"), FocusPane(slot));
+        }
+        Bindings { map }
+    }
+
+    /// The Linux built-ins, Tilix-like.
+    pub fn linux_defaults() -> Bindings {
         use Action::*;
         let mut map = HashMap::new();
         let mut bind = |s: &str, a: Action| {
@@ -497,9 +609,13 @@ mod tests {
         assert!("Hyper+x".parse::<KeyCombo>().is_err());
     }
     #[test]
-    fn tilix_defaults() {
-        let b = Bindings::defaults();
+    fn linux_defaults_are_tilix_like() {
+        let b = Bindings::linux_defaults();
         assert_eq!(b.lookup(&k("Ctrl+Alt+R")), Some(Action::SplitRight));
+        assert!(
+            b.entries().iter().all(|(_, a)| *a != Action::Quit),
+            "quit is unbound on Linux"
+        );
         assert_eq!(b.lookup(&k("Ctrl+Alt+D")), Some(Action::SplitDown));
         assert_eq!(b.lookup(&k("Ctrl+Alt+A")), Some(Action::SplitAuto));
         // Not Ctrl+Alt+Shift+R: Cinnamon and GNOME record the screen with it.
@@ -536,7 +652,7 @@ mod tests {
     }
     #[test]
     fn zoom_in_accepts_plus_and_equals() {
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         assert_eq!(b.lookup(&k("Ctrl+plus")), Some(Action::ZoomIn));
         assert_eq!(b.lookup(&k("Ctrl+=")), Some(Action::ZoomIn));
         assert_eq!(b.lookup(&k("Ctrl+Shift+=")), Some(Action::ZoomIn));
@@ -557,7 +673,7 @@ mod tests {
     #[test]
     fn digit_bindings_fall_back_to_physical_key() {
         // Czech QWERTZ digit row without modifiers: + ě š č ř ž ý á í é.
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         let alt = Mods {
             alt: true,
             ..Default::default()
@@ -608,16 +724,108 @@ mod tests {
     }
 
     #[test]
-    fn keycombo_display_roundtrip() {
-        for (combo, _) in Bindings::defaults().entries() {
-            let s = combo.to_string();
-            assert_eq!(s.parse::<KeyCombo>().as_ref(), Ok(&combo), "{s}");
+    fn macos_defaults() {
+        let b = Bindings::macos_defaults();
+        let cases = [
+            ("Super+C", Action::Copy),
+            ("Super+V", Action::Paste),
+            ("Super+A", Action::SelectAll),
+            ("Super+F", Action::Find),
+            ("Super+G", Action::FindNext),
+            ("Super+Shift+G", Action::FindPrev),
+            ("Super+T", Action::NewTab),
+            ("Super+N", Action::NewWindow),
+            ("Super+Q", Action::Quit),
+            ("Super+W", Action::ClosePane),
+            ("Super+Shift+W", Action::CloseTab),
+            ("Super+Shift+]", Action::NextTab),
+            ("Super+Shift+[", Action::PrevTab),
+            ("Super+1", Action::GoToTab(1)),
+            ("Super+9", Action::GoToTab(9)),
+            ("Super+Shift+Left", Action::MoveTabLeft),
+            ("Super+Shift+Right", Action::MoveTabRight),
+            ("Super+D", Action::SplitRight),
+            ("Super+Shift+D", Action::SplitDown),
+            ("Super+Alt+D", Action::SplitLeft),
+            ("Super+Alt+Shift+D", Action::SplitUp),
+            ("Super+Shift+A", Action::SplitAuto),
+            ("Super+Alt+Up", Action::FocusUp),
+            ("Super+Alt+Left", Action::FocusLeft),
+            ("Super+Alt+1", Action::FocusPane(1)),
+            ("Super+Alt+0", Action::FocusPane(10)),
+            ("Super+]", Action::NextPane),
+            ("Super+[", Action::PrevPane),
+            ("Super+Ctrl+Up", Action::ResizeUp),
+            ("Super+Ctrl+Right", Action::ResizeRight),
+            ("Super+Shift+Enter", Action::MaximizePane),
+            ("Super+S", Action::SaveSession),
+            ("Super+O", Action::OpenSession),
+            ("Super+=", Action::ZoomIn),
+            ("Super+plus", Action::ZoomIn),
+            ("Super+minus", Action::ZoomOut),
+            ("Super+0", Action::ZoomReset),
+            ("Super+Ctrl+F", Action::Fullscreen),
+            ("Super+Alt+S", Action::ShowSizes),
+            ("Super+Up", Action::ScrollLineUp),
+            ("Super+Down", Action::ScrollLineDown),
+            ("Shift+PageUp", Action::ScrollPageUp),
+            ("Shift+PageDown", Action::ScrollPageDown),
+        ];
+        for (combo, action) in cases {
+            assert_eq!(b.lookup(&k(combo)), Some(action), "{combo}");
         }
-        assert_eq!(k("ctrl+alt+r").to_string(), "Ctrl+Alt+R");
-        assert_eq!(k("Shift+Page_Up").to_string(), "Shift+PageUp");
-        assert_eq!(k("Ctrl+plus").to_string(), "Ctrl+plus");
+        // Ctrl stays the shell's: no macOS default uses Ctrl without Cmd.
+        for (c, a) in b.entries() {
+            assert!(
+                !c.mods.ctrl || c.mods.logo,
+                "{c} ({a:?}) takes Ctrl from the shell"
+            );
+        }
+        // Macs have no Insert key; tab 10 is unbound as in Terminal.app.
+        assert!(b.entries().iter().all(|(_, a)| *a != Action::PastePrimary));
+        assert!(b.entries().iter().all(|(_, a)| *a != Action::GoToTab(10)));
+    }
+
+    #[test]
+    fn defaults_follow_the_os() {
+        let want = if cfg!(target_os = "macos") {
+            Bindings::macos_defaults()
+        } else {
+            Bindings::linux_defaults()
+        };
+        assert_eq!(Bindings::defaults(), want);
+    }
+
+    #[test]
+    fn mac_key_names() {
+        let c = k("super+alt+shift+d");
+        assert_eq!(c.label(KeyLabels::Mac), "Option+Shift+Cmd+D");
+        assert_eq!(c.label(KeyLabels::Linux), "Alt+Shift+Super+D");
+        // Mac names parse too.
+        assert_eq!(k("Cmd+Option+D"), k("Super+Alt+D"));
+        assert_eq!(k("command+opt+d"), k("Super+Alt+D"));
         assert_eq!(
-            k("super+shift+ctrl+alt+minus").to_string(),
+            k("Super+Shift+Enter").label(KeyLabels::Mac),
+            "Shift+Cmd+Enter"
+        );
+        assert_eq!(k("Super+Shift+Return"), k("Super+Shift+Enter"));
+    }
+
+    #[test]
+    fn keycombo_display_roundtrip() {
+        for b in [Bindings::linux_defaults(), Bindings::macos_defaults()] {
+            for (combo, _) in b.entries() {
+                for labels in [KeyLabels::Linux, KeyLabels::Mac] {
+                    let s = combo.label(labels);
+                    assert_eq!(s.parse::<KeyCombo>().as_ref(), Ok(&combo), "{s}");
+                }
+            }
+        }
+        assert_eq!(k("ctrl+alt+r").label(KeyLabels::Linux), "Ctrl+Alt+R");
+        assert_eq!(k("Shift+Page_Up").label(KeyLabels::Linux), "Shift+PageUp");
+        assert_eq!(k("Ctrl+plus").label(KeyLabels::Linux), "Ctrl+plus");
+        assert_eq!(
+            k("super+shift+ctrl+alt+minus").label(KeyLabels::Linux),
             "Ctrl+Alt+Shift+Super+minus"
         );
     }
@@ -634,15 +842,15 @@ mod tests {
         };
         assert_eq!(c.to_string(), "Ctrl+ß");
         assert_eq!(c.to_string().parse::<KeyCombo>(), Ok(c));
-        assert_eq!(k("Alt+é").to_string(), "Alt+É");
+        assert_eq!(k("Alt+é").label(KeyLabels::Linux), "Alt+É");
     }
 
     #[test]
     fn named_label_matches_parse_named() {
         for name in [
             "up", "down", "left", "right", "pageup", "pagedown", "insert", "delete", "home", "end",
-            "tab", "escape", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10", "f11",
-            "f12",
+            "tab", "escape", "enter", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "f10",
+            "f11", "f12",
         ] {
             let key = parse_named(name).unwrap_or_else(|| panic!("{name} unparsed"));
             let label = named_label(key).unwrap_or_else(|| panic!("{name} unlabeled"));
@@ -652,7 +860,7 @@ mod tests {
 
     #[test]
     fn entries_cover_defaults() {
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         let e = b.entries();
         assert_eq!(e.len(), b.map.len());
         let labels: Vec<String> = e.iter().map(|(_, a)| a.label()).collect();
@@ -662,7 +870,7 @@ mod tests {
 
     #[test]
     fn entries_sort_numbers_naturally() {
-        let labels: Vec<String> = Bindings::defaults()
+        let labels: Vec<String> = Bindings::linux_defaults()
             .entries()
             .iter()
             .map(|(_, a)| a.label())
@@ -699,7 +907,7 @@ mod tests {
         let names: std::collections::HashSet<String> =
             all.iter().map(Action::config_name).collect();
         assert_eq!(names.len(), all.len(), "duplicate config name");
-        for (_, a) in Bindings::defaults().entries() {
+        for (_, a) in Bindings::linux_defaults().entries() {
             assert!(all.contains(&a), "{a:?} missing from TABLE");
         }
     }
@@ -736,6 +944,7 @@ mod tests {
             SaveSession,
             OpenSession,
             NewWindow,
+            Quit,
             Copy,
             Paste,
             PastePrimary,
@@ -759,7 +968,7 @@ mod tests {
                 | FocusLeft | FocusRight | NextPane | PrevPane | ResizeUp | ResizeDown
                 | ResizeLeft | ResizeRight | MaximizePane | ClosePane | NewTab | CloseTab
                 | NextTab | PrevTab | MoveTabLeft | MoveTabRight | SaveSession | OpenSession
-                | NewWindow | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
+                | NewWindow | Quit | Copy | Paste | PastePrimary | SelectAll | Find | FindNext
                 | FindPrev | ScrollLineUp | ScrollLineDown | ScrollPageUp | ScrollPageDown
                 | ZoomIn | ZoomOut | ZoomReset | Fullscreen | ShowSizes => {}
                 FocusPane(_) | GoToTab(_) => unreachable!(),
@@ -769,12 +978,20 @@ mod tests {
         assert_eq!(plain.len(), TABLE.len());
     }
 
-    /// Every action has a table row "| `name` | `combo`, `combo` |" in docs/config.md whose
-    /// combos are the defaults, in the order the shortcuts list shows them.
+    /// Every action has a row "| `name` | linux combos | macOS combos |" in docs/config.md
+    /// whose combos are each OS's defaults, in the order the shortcuts list shows them.
     #[test]
     fn config_md_lists_all_actions() {
         let doc = include_str!("../../docs/config.md");
-        let entries = Bindings::defaults().entries();
+        let column = |b: &Bindings, a: Action, labels: KeyLabels| {
+            b.entries()
+                .iter()
+                .filter(|(_, x)| *x == a)
+                .map(|(c, _)| format!("`{}`", c.label(labels)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let (linux, mac) = (Bindings::linux_defaults(), Bindings::macos_defaults());
         for a in Action::all() {
             let name = a.config_name();
             let prefix = format!("| `{name}` | ");
@@ -782,24 +999,26 @@ mod tests {
                 .lines()
                 .find_map(|l| l.strip_prefix(&prefix))
                 .unwrap_or_else(|| panic!("docs/config.md has no table row for `{name}`"));
-            let want = entries
-                .iter()
-                .filter(|(_, x)| *x == a)
-                .map(|(c, _)| format!("`{c}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let cells: Vec<&str> = row
+                .trim_end()
+                .trim_end_matches('|')
+                .split('|')
+                .map(str::trim)
+                .collect();
+            assert_eq!(cells.len(), 2, "{name}: want a Linux and a macOS column");
             assert_eq!(
-                row.trim_end().trim_end_matches('|').trim_end(),
-                want,
-                "{name}"
+                cells[0],
+                column(&linux, a, KeyLabels::Linux),
+                "{name} (Linux)"
             );
+            assert_eq!(cells[1], column(&mac, a, KeyLabels::Mac), "{name} (macOS)");
         }
     }
 
     #[test]
     fn overrides_move_and_unbind() {
         let b = Bindings::with_overrides(
-            Bindings::defaults(),
+            Bindings::linux_defaults(),
             &[
                 (Action::SplitRight, vec![k("Ctrl+Shift+V")]),
                 (Action::Fullscreen, vec![]),
@@ -817,7 +1036,7 @@ mod tests {
 
     #[test]
     fn show_sizes_default_and_name() {
-        let b = Bindings::defaults();
+        let b = Bindings::linux_defaults();
         assert_eq!(b.lookup(&k("Ctrl+Alt+S")), Some(Action::ShowSizes));
         assert_eq!(b.lookup(&k("Ctrl+Shift+S")), Some(Action::SaveSession));
         assert_eq!(Action::ShowSizes.config_name(), "show_sizes");
@@ -826,6 +1045,6 @@ mod tests {
 
     #[test]
     fn unbound_key_is_none() {
-        assert_eq!(Bindings::defaults().lookup(&k("Ctrl+Q")), None);
+        assert_eq!(Bindings::linux_defaults().lookup(&k("Ctrl+Q")), None);
     }
 }

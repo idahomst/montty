@@ -83,8 +83,9 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - The key is an action name from the table below; the value is a combo string, an array of combo strings, or `"none"`.
 - A combo is modifiers and one key joined with `+`: `Ctrl+Alt+R`, `Shift+PageUp`, `F11`. Case doesn't matter.
   Modifiers: `Ctrl` (or `Control`), `Alt`, `Shift`, `Super` (or `Logo`, `Meta`).
+  On macOS the names `Cmd` (`Super`) and `Option` (`Alt`) work too, and the shortcuts list shows them.
 - Keys: a single character (`r`, `0`, `=`, `[`), or a name: `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`
-  (`Page_Up` too), `Insert`, `Delete`, `Home`, `End`, `Tab`, `Escape`, `F1` to `F12`.
+  (`Page_Up` too), `Insert`, `Delete`, `Home`, `End`, `Tab`, `Escape`, `Enter` (`Return`), `F1` to `F12`.
 - `+` and `-` are written `plus` and `minus` (`Ctrl+plus`, `Ctrl+minus`), because `+` separates the parts.
 - Listing an action replaces all of its default combos (an array lists them all; `"none"` removes them). Actions you
   don't list keep their defaults.
@@ -98,104 +99,105 @@ zoom_in = ["Ctrl+plus", "Ctrl+="]
 - An unknown action name is an error: `` unknown action `splt_right` in [keybindings] ``.
 - Digit keys also match by position on the number row, so `Alt+1` works on layouts (such as Czech) where the
   unshifted digit row types other characters.
-- The mouse gestures (selection, middle click paste, the right-click menu, Ctrl+click links; see "Mouse and
+- The mouse gestures (selection, middle click paste, the right-click menu, Ctrl+click links (Cmd+click on macOS); see "Mouse and
   clipboard") aren't configurable.
 
 ### Actions and their default keys
 
 **Tiling**
 
-| Action | Default |
-|---|---|
-| `split_right` | `Ctrl+Alt+R` |
-| `split_down` | `Ctrl+Alt+D` |
-| `split_left` | `Ctrl+Alt+Shift+L` |
-| `split_up` | `Ctrl+Alt+Shift+D` |
-| `split_auto` | `Ctrl+Alt+A` |
-| `focus_up` | `Alt+Up` |
-| `focus_down` | `Alt+Down` |
-| `focus_left` | `Alt+Left` |
-| `focus_right` | `Alt+Right` |
-| `next_pane` | `Ctrl+Tab` |
-| `prev_pane` | `Ctrl+Shift+Tab` |
-| `resize_up` | `Alt+Shift+Up` |
-| `resize_down` | `Alt+Shift+Down` |
-| `resize_left` | `Alt+Shift+Left` |
-| `resize_right` | `Alt+Shift+Right` |
-| `maximize_pane` | `Ctrl+Shift+X` |
-| `close_pane` | `Ctrl+Shift+W` |
+| Action | Linux | macOS |
+|---|---|---|
+| `split_right` | `Ctrl+Alt+R` | `Cmd+D` |
+| `split_down` | `Ctrl+Alt+D` | `Shift+Cmd+D` |
+| `split_left` | `Ctrl+Alt+Shift+L` | `Option+Cmd+D` |
+| `split_up` | `Ctrl+Alt+Shift+D` | `Option+Shift+Cmd+D` |
+| `split_auto` | `Ctrl+Alt+A` | `Shift+Cmd+A` |
+| `focus_up` | `Alt+Up` | `Option+Cmd+Up` |
+| `focus_down` | `Alt+Down` | `Option+Cmd+Down` |
+| `focus_left` | `Alt+Left` | `Option+Cmd+Left` |
+| `focus_right` | `Alt+Right` | `Option+Cmd+Right` |
+| `next_pane` | `Ctrl+Tab` | `Cmd+]` |
+| `prev_pane` | `Ctrl+Shift+Tab` | `Cmd+[` |
+| `resize_up` | `Alt+Shift+Up` | `Ctrl+Cmd+Up` |
+| `resize_down` | `Alt+Shift+Down` | `Ctrl+Cmd+Down` |
+| `resize_left` | `Alt+Shift+Left` | `Ctrl+Cmd+Left` |
+| `resize_right` | `Alt+Shift+Right` | `Ctrl+Cmd+Right` |
+| `maximize_pane` | `Ctrl+Shift+X` | `Shift+Cmd+Enter` |
+| `close_pane` | `Ctrl+Shift+W` | `Cmd+W` |
 
 **Tabs**
 
-| Action | Default |
-|---|---|
-| `new_tab` | `Ctrl+Shift+T` |
-| `close_tab` | `Ctrl+Shift+Q` |
-| `next_tab` | `Ctrl+PageDown` |
-| `prev_tab` | `Ctrl+PageUp` |
-| `move_tab_left` | `Ctrl+Shift+PageUp` |
-| `move_tab_right` | `Ctrl+Shift+PageDown` |
+| Action | Linux | macOS |
+|---|---|---|
+| `new_tab` | `Ctrl+Shift+T` | `Cmd+T` |
+| `close_tab` | `Ctrl+Shift+Q` | `Shift+Cmd+W` |
+| `next_tab` | `Ctrl+PageDown` | `Shift+Cmd+]` |
+| `prev_tab` | `Ctrl+PageUp` | `Shift+Cmd+[` |
+| `move_tab_left` | `Ctrl+Shift+PageUp` | `Shift+Cmd+Left` |
+| `move_tab_right` | `Ctrl+Shift+PageDown` | `Shift+Cmd+Right` |
 
 **Session and clipboard**
 
-| Action | Default |
-|---|---|
-| `save_session` | `Ctrl+Shift+S` |
-| `open_session` | `Ctrl+Shift+O` |
-| `new_window` | `Ctrl+Shift+N` |
-| `copy` | `Ctrl+Shift+C` |
-| `paste` | `Ctrl+Shift+V` |
-| `paste_primary` | `Shift+Insert` |
-| `select_all` | `Ctrl+Shift+A` |
+| Action | Linux | macOS |
+|---|---|---|
+| `save_session` | `Ctrl+Shift+S` | `Cmd+S` |
+| `open_session` | `Ctrl+Shift+O` | `Cmd+O` |
+| `new_window` | `Ctrl+Shift+N` | `Cmd+N` |
+| `quit` | | `Cmd+Q` |
+| `copy` | `Ctrl+Shift+C` | `Cmd+C` |
+| `paste` | `Ctrl+Shift+V` | `Cmd+V` |
+| `paste_primary` | `Shift+Insert` | |
+| `select_all` | `Ctrl+Shift+A` | `Cmd+A` |
 
 **Find and scrolling**
 
-| Action | Default |
-|---|---|
-| `find` | `Ctrl+Shift+F` |
-| `find_next` | `Ctrl+Shift+G` |
-| `find_prev` | `Ctrl+Shift+H` |
-| `scroll_line_up` | `Ctrl+Shift+Up` |
-| `scroll_line_down` | `Ctrl+Shift+Down` |
-| `scroll_page_up` | `Shift+PageUp` |
-| `scroll_page_down` | `Shift+PageDown` |
+| Action | Linux | macOS |
+|---|---|---|
+| `find` | `Ctrl+Shift+F` | `Cmd+F` |
+| `find_next` | `Ctrl+Shift+G` | `Cmd+G` |
+| `find_prev` | `Ctrl+Shift+H` | `Shift+Cmd+G` |
+| `scroll_line_up` | `Ctrl+Shift+Up` | `Cmd+Up` |
+| `scroll_line_down` | `Ctrl+Shift+Down` | `Cmd+Down` |
+| `scroll_page_up` | `Shift+PageUp` | `Shift+PageUp` |
+| `scroll_page_down` | `Shift+PageDown` | `Shift+PageDown` |
 
 **View**
 
-| Action | Default |
-|---|---|
-| `zoom_in` | `Ctrl+=`, `Ctrl+Shift+plus`, `Ctrl+plus` |
-| `zoom_out` | `Ctrl+minus` |
-| `zoom_reset` | `Ctrl+0` |
-| `fullscreen` | `F11` |
-| `show_sizes` | `Ctrl+Alt+S` |
+| Action | Linux | macOS |
+|---|---|---|
+| `zoom_in` | `Ctrl+=`, `Ctrl+Shift+plus`, `Ctrl+plus` | `Cmd+=`, `Cmd+plus` |
+| `zoom_out` | `Ctrl+minus` | `Cmd+minus` |
+| `zoom_reset` | `Ctrl+0` | `Cmd+0` |
+| `fullscreen` | `F11` | `Ctrl+Cmd+F` |
+| `show_sizes` | `Ctrl+Alt+S` | `Option+Cmd+S` |
 
 `show_sizes` shows every visible pane's size as `columns × rows` for 2 seconds; press it again to hide the labels.
 
 **Numbered**
 
-| Action | Default |
-|---|---|
-| `focus_pane_1` | `Alt+1` |
-| `focus_pane_2` | `Alt+2` |
-| `focus_pane_3` | `Alt+3` |
-| `focus_pane_4` | `Alt+4` |
-| `focus_pane_5` | `Alt+5` |
-| `focus_pane_6` | `Alt+6` |
-| `focus_pane_7` | `Alt+7` |
-| `focus_pane_8` | `Alt+8` |
-| `focus_pane_9` | `Alt+9` |
-| `focus_pane_10` | `Alt+0` |
-| `go_to_tab_1` | `Ctrl+Alt+1` |
-| `go_to_tab_2` | `Ctrl+Alt+2` |
-| `go_to_tab_3` | `Ctrl+Alt+3` |
-| `go_to_tab_4` | `Ctrl+Alt+4` |
-| `go_to_tab_5` | `Ctrl+Alt+5` |
-| `go_to_tab_6` | `Ctrl+Alt+6` |
-| `go_to_tab_7` | `Ctrl+Alt+7` |
-| `go_to_tab_8` | `Ctrl+Alt+8` |
-| `go_to_tab_9` | `Ctrl+Alt+9` |
-| `go_to_tab_10` | `Ctrl+Alt+0` |
+| Action | Linux | macOS |
+|---|---|---|
+| `focus_pane_1` | `Alt+1` | `Option+Cmd+1` |
+| `focus_pane_2` | `Alt+2` | `Option+Cmd+2` |
+| `focus_pane_3` | `Alt+3` | `Option+Cmd+3` |
+| `focus_pane_4` | `Alt+4` | `Option+Cmd+4` |
+| `focus_pane_5` | `Alt+5` | `Option+Cmd+5` |
+| `focus_pane_6` | `Alt+6` | `Option+Cmd+6` |
+| `focus_pane_7` | `Alt+7` | `Option+Cmd+7` |
+| `focus_pane_8` | `Alt+8` | `Option+Cmd+8` |
+| `focus_pane_9` | `Alt+9` | `Option+Cmd+9` |
+| `focus_pane_10` | `Alt+0` | `Option+Cmd+0` |
+| `go_to_tab_1` | `Ctrl+Alt+1` | `Cmd+1` |
+| `go_to_tab_2` | `Ctrl+Alt+2` | `Cmd+2` |
+| `go_to_tab_3` | `Ctrl+Alt+3` | `Cmd+3` |
+| `go_to_tab_4` | `Ctrl+Alt+4` | `Cmd+4` |
+| `go_to_tab_5` | `Ctrl+Alt+5` | `Cmd+5` |
+| `go_to_tab_6` | `Ctrl+Alt+6` | `Cmd+6` |
+| `go_to_tab_7` | `Ctrl+Alt+7` | `Cmd+7` |
+| `go_to_tab_8` | `Ctrl+Alt+8` | `Cmd+8` |
+| `go_to_tab_9` | `Ctrl+Alt+9` | `Cmd+9` |
+| `go_to_tab_10` | `Ctrl+Alt+0` | |
 
 `Ctrl+plus`, `Ctrl+Shift+plus` and `Ctrl+=` all zoom in by default.
 
@@ -245,7 +247,7 @@ selection there, so each Shift+click or Shift+drag starts a new one.
 
 ### Links
 
-Ctrl+click opens a link with `xdg-open` (`open` on macOS), even while the program has mouse reporting on. A link is either an OSC 8
+Ctrl+click (Cmd+click on macOS) opens a link with `xdg-open` (`open` on macOS), even while the program has mouse reporting on. A link is either an OSC 8
 hyperlink on the cell or, failing that, a URL found in the text under the pointer (a URL that wraps onto the next
 line counts). Text starting with `www.` also counts as a URL (not when it follows a letter, digit, `.`, `-`, `_`,
 `/` or `@`) and opens as `https://` plus the text. Only these schemes open: `http`, `https`, `ftp`, `file`,
@@ -487,6 +489,8 @@ and scrollback are not saved; opening a session starts a fresh shell in every pa
 - `new_window` (`Ctrl+Shift+N`, or `New window` in the ≡ menu) opens another window in the same process, with one
   pane. The pane uses the requesting window's default profile (its `--profile` if it has one) and no `-e` command.
   `-e` applies to the first window only.
+- `quit` closes every window at once; it asks first only when a process is still running in one of them (the count
+  covers all windows). On macOS it is Cmd+Q, the app menu's Quit and the Dock's Quit.
 - Closing the last window exits montty. Windows are independent otherwise (tabs, panes, zoom).
 
 ### Working directory of a new pane

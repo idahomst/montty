@@ -26,6 +26,10 @@ pub enum WindowInit {
 
 /// What a window asks of the app; drained by the app after every event it delivers.
 pub enum AppRequest {
+    /// Close every window and exit: `confirmed` once the user said yes (or nothing runs).
+    Quit {
+        confirmed: bool,
+    },
     NewWindow {
         profile: Option<String>,
     },
@@ -66,6 +70,19 @@ impl<W> Windows<W> {
         self.map.iter_mut().map(|(id, w)| (*id, w))
     }
 
+    /// The first window for which `prefer` holds, else any window.
+    pub fn pick(&self, prefer: impl Fn(&W) -> bool) -> Option<WindowId> {
+        self.map
+            .iter()
+            .find(|(_, w)| prefer(w))
+            .or_else(|| self.map.iter().next())
+            .map(|(id, _)| *id)
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
@@ -103,6 +120,18 @@ mod tests {
         ws.insert(wid(1), Fake(vec![10, 11]));
         ws.insert(wid(2), Fake(vec![20]));
         ws
+    }
+
+    #[test]
+    fn pick_prefers_then_falls_back() {
+        let ws = two();
+        assert_eq!(ws.pick(|w| w.0.contains(&20)), Some(wid(2)));
+        // Nothing preferred: any window.
+        assert!(matches!(ws.pick(|_| false), Some(id) if id == wid(1) || id == wid(2)));
+        assert_eq!(Windows::<Fake>::default().pick(|_| true), None);
+        let mut ws = two();
+        ws.clear();
+        assert!(ws.is_empty());
     }
 
     #[test]

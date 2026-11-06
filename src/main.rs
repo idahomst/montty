@@ -29,6 +29,8 @@ fn main() {
         }
     };
     montty::device_events::ignore(&event_loop);
+    #[cfg(target_os = "macos")]
+    montty::macos_quit::install(event_loop.create_proxy());
     let mut app = App::new(args, event_loop.create_proxy());
     if let Err(e) = event_loop.run_app(&mut app) {
         eprintln!("montty: {e}");

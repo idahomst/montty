@@ -18,7 +18,7 @@ memory. Priority order: **responsiveness > simplicity > features**.
   **live**. A running pane can switch profile from its overlay.
 - Color schemes, per-profile background image, window transparency, font choice, scrollback length, shell or command.
 - Save and load sessions (tab layout, per-pane profile and working directory).
-- Find in the scrollback, clickable URLs (Ctrl+click), mouse selection, clipboard and primary selection.
+- Find in the scrollback, clickable URLs (Ctrl+click, Cmd+click on macOS), mouse selection, clipboard and primary selection.
 - Tilix's default shortcuts, all rebindable in `config.toml`.
 - Linux, X11 and Wayland.
 
@@ -199,7 +199,7 @@ with it).
 - Mouse: drag selects, double-click selects a word, triple-click a line, Alt+drag a block, Shift bypasses a program's
   mouse reporting, selecting copies to PRIMARY, middle click pastes it, right-click opens a pane menu (the four
   splits, copy, paste) at the pointer, the wheel scrolls (alternate scroll on the alt screen).
-- Ctrl+click on a URL or OSC 8 link opens it with `xdg-open`.
+- Ctrl+click (Cmd+click on macOS) on a URL or OSC 8 link opens it with `xdg-open`.
 - Kitty keyboard protocol (`kitty_keyboard`, default on): `alacritty_terminal` tracks and answers the flags;
   `input/kitty.rs` encodes keys for all five, so Shift+Enter and other modified keys reach agents distinctly (Claude
   Code >= 2.1.269 uses it). With no flags pushed keys encode as before. Releases and repeats reach
