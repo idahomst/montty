@@ -38,6 +38,8 @@ pub enum AppRequest {
         name: String,
         profile: Option<String>,
     },
+    /// Re-read the config dir now, for every window (`Reload config`, a new profile).
+    ReloadConfig,
 }
 
 /// The open windows by id. Generic so the routing can be tested without a display.

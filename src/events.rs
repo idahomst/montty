@@ -10,15 +10,14 @@ use winit::window::WindowId;
 
 use crate::render::image::Rgba8;
 use crate::term::PaneId;
-use crate::term::osc_scan::Signal;
 
 pub enum UserEvent {
     Term(PaneId, Event),
-    /// A status or notification sequence the PTY tap found in the pane's output.
-    Signal(PaneId, Signal),
-    /// A file in the config dir changed (sent from the watcher's thread), for the window
-    /// whose watcher saw it.
-    ConfigChanged(WindowId),
+    /// The PTY tap found status or notification sequences in the pane's output: they wait
+    /// in the pane's `SignalQueue` (one event per batch, see `term/pty_tap.rs`).
+    Signals(PaneId),
+    /// A file in the config dir changed (sent from the watcher's thread).
+    ConfigChanged,
     /// A background image finished loading (sent from its decoding thread) for a window:
     /// the image's path as its profile names it, the request id, and the image, downscaled, or why it
     /// failed.

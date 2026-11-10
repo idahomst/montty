@@ -3,6 +3,8 @@
 //! Pure data. The PTY scanner (`osc_scan`) hands over the raw payload after `7501;`; content is
 //! untrusted, so every limit is checked before any record changes and text is sanitised for display.
 
+use std::time::{Duration, Instant};
+
 use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 
@@ -18,6 +20,38 @@ const MAX_APP: usize = 32;
 const MAX_ID: usize = 128;
 const MAX_SEGMENT: usize = 32;
 const MAX_LEVELS: usize = 8;
+
+/// The feature query's reply (`OSC 7501 ; ?`), written to the pane's PTY.
+pub const QUERY_REPLY: &[u8] = b"\x1b]7501;?\x1b\\";
+
+/// Replies to the feature query per pane in `QUERY_WINDOW`. A program asks once, at its
+/// start; the query can also come from a file sent to the terminal, and every reply is
+/// input typed into whatever reads the PTY.
+const MAX_QUERY_REPLIES: u32 = 4;
+const QUERY_WINDOW: Duration = Duration::from_secs(1);
+
+/// Bounds how often a pane's output can make montty answer the feature query.
+#[derive(Default)]
+pub struct QueryLimit {
+    /// The start of the current window and the replies allowed in it so far.
+    window: Option<(Instant, u32)>,
+}
+
+impl QueryLimit {
+    /// Whether a query seen at `now` gets its reply; counts it when it does.
+    pub fn allow(&mut self, now: Instant) -> bool {
+        match &mut self.window {
+            Some((start, n)) if now.saturating_duration_since(*start) < QUERY_WINDOW => {
+                *n += 1;
+                *n <= MAX_QUERY_REPLIES
+            }
+            w => {
+                *w = Some((now, 1));
+                true
+            }
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -456,6 +490,18 @@ mod tests {
         };
         assert_eq!(label(&r), "claude-code: Tests pass");
         assert_eq!(label(&rec(State::Error)), "Failed");
+    }
+
+    #[test]
+    fn query_replies_are_rate_limited() {
+        let mut l = QueryLimit::default();
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+        let allowed = |l: &mut QueryLimit, at| (0..100).filter(|_| l.allow(at)).count();
+        assert_eq!(allowed(&mut l, t0), MAX_QUERY_REPLIES as usize);
+        assert!(!l.allow(t0 + ms(999)));
+        // A new window: replies again, however many were refused.
+        assert_eq!(allowed(&mut l, t0 + ms(1000)), MAX_QUERY_REPLIES as usize);
     }
 
     #[test]

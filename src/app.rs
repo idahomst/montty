@@ -1,6 +1,6 @@
 //! winit application handler: owns the windows and routes events to them.
 
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -10,29 +10,38 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopProxy};
 use winit::window::WindowId;
 
 use crate::cli::Args;
-use crate::config::{GlobalConfig, config_dir};
-use crate::events::UserEvent;
+use crate::config::shared::{SharedConfig, Startup};
+use crate::config::{ConfigError, config_dir};
+use crate::events::{EventSink, UserEvent};
 use crate::session::{last_file, read_file, read_session};
 use crate::term::PaneId;
-use crate::window::{StartupInit, Window, startup_init};
+use crate::window::{StartupInit, Window, WindowConfig, startup_init};
 use crate::windows::{AppRequest, WindowInit, Windows};
 
-/// The config's `restore_last_session`; off when `config.toml` is missing or invalid (the
-/// window shows that error itself).
-fn restore_enabled(dir: Option<&Path>) -> bool {
-    let Some(dir) = dir else {
-        return false;
-    };
-    std::fs::read_to_string(dir.join("config.toml"))
-        .ok()
-        .and_then(|src| GlobalConfig::parse(&src, Path::new("config.toml")).ok())
-        .is_some_and(|g| g.restore_last_session)
+/// Print every config error: a window's toast shows only the first.
+fn log_errors(errors: &[ConfigError]) {
+    for e in errors {
+        eprintln!("montty: {e}");
+    }
+}
+
+fn log_watcher(errors: &[String]) {
+    for e in errors {
+        eprintln!("montty: config watcher: {e}");
+    }
 }
 
 pub struct App {
     args: Args,
     proxy: EventLoopProxy<UserEvent>,
     windows: Windows<Window>,
+    /// The config files, their watcher and the reload debounce, for every window.
+    config: SharedConfig,
+    /// What loading the config at startup found, until the first window shows it.
+    startup: Startup,
+    /// A window with background images came or went: the watched dirs follow, once per
+    /// turn of the loop (see `about_to_wait`).
+    watch_dirty: bool,
     started: bool,
     /// Set when startup failed; the caller reports it and exits 1.
     pub error: Option<String>,
@@ -48,8 +57,10 @@ impl App {
             profile: profile.clone(),
             command,
         };
+        let store = self.config.store();
+        let dir = Some(store.dir()).filter(|d| !d.as_os_str().is_empty());
         if let Some(name) = &self.args.session {
-            return match read_session(config_dir().as_deref(), name) {
+            return match read_session(dir, name) {
                 Ok(doc) => (
                     WindowInit::Session {
                         doc,
@@ -65,10 +76,10 @@ impl App {
                 }
             };
         }
-        let dir = config_dir();
-        let restore = restore_enabled(dir.as_deref());
-        let last = (restore && dir.as_deref().is_some_and(|d| d.join(last_file()).exists()))
-            .then(|| read_file(dir.as_deref(), &last_file()));
+        // Off when `config.toml` is missing or invalid (the window shows that error itself).
+        let restore = store.global().restore_last_session;
+        let last = (restore && dir.is_some_and(|d| d.join(last_file()).exists()))
+            .then(|| read_file(dir, &last_file()));
         let command = self.args.command.clone();
         match startup_init(restore, last, command.is_some()) {
             StartupInit::Session(doc) => (
@@ -93,18 +104,73 @@ impl App {
         self.windows.owner_of(pane, |w, p| w.has_pane(p))
     }
 
+    /// Loads the config (once, for every window) and starts watching it.
     pub fn new(args: Args, proxy: EventLoopProxy<UserEvent>) -> App {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|h| h.is_absolute());
+        let waker = proxy.clone();
+        let on_change = move || waker.send(UserEvent::ConfigChanged);
+        let (config, startup) =
+            SharedConfig::load(config_dir().as_deref(), home.as_deref(), on_change);
+        log_errors(startup.first_run.as_slice());
+        log_errors(config.errors());
+        log_watcher(&startup.watcher);
         App {
             args,
             proxy,
             windows: Windows::default(),
+            config,
+            startup,
+            watch_dirty: false,
             started: false,
             error: None,
         }
     }
 
-    fn open(&self, el: &ActiveEventLoop, init: WindowInit) -> Result<Window, String> {
-        Window::new(el, init, Arc::new(self.proxy.clone()))
+    /// A new window on the config as it is now; the first one also gets what the load
+    /// at startup found.
+    fn open(&mut self, el: &ActiveEventLoop, init: WindowInit) -> Result<Window, String> {
+        let config = WindowConfig {
+            store: self.config.store(),
+            errors: self.config.errors().to_vec(),
+            startup: std::mem::take(&mut self.startup),
+        };
+        Window::new(el, init, Arc::new(self.proxy.clone()), config)
+    }
+
+    /// Re-read the config dir (the watcher's burst settled, `Reload config`, a new
+    /// profile) and hand every window the new store with what changed.
+    fn reload_config(&mut self, now: Instant) {
+        let (report, news) = self.config.reload();
+        if news {
+            log_errors(&report.errors);
+        }
+        let store = self.config.store();
+        for (_, w) in self.windows.iter_mut() {
+            w.config_reloaded(store.clone(), &report, now);
+        }
+        // Dirs created since (profiles/, schemes/, a new symlink's target dir) and dirs no
+        // longer needed (a removed link's target dir, the config dir's parent).
+        self.watch_dirty = true;
+    }
+
+    /// Watch the config dirs and every window's background image files. A dir that newly
+    /// fails is reported in one window (the focused one, else any).
+    fn update_watched(&mut self) {
+        let files: Vec<PathBuf> = self
+            .windows
+            .iter_mut()
+            .flat_map(|(_, w)| w.image_files())
+            .collect();
+        let errs = self.config.watch(&files);
+        log_watcher(&errs);
+        if !errs.is_empty()
+            && let Some(id) = self.windows.pick(|w| w.is_focused())
+            && let Some(w) = self.windows.get_mut(id)
+        {
+            w.watch_failed(&errs);
+        }
     }
 
     /// Run `f` on window `id` (a window that is gone gets nothing), then serve what it
@@ -131,6 +197,8 @@ impl App {
                     w.save_on_leave();
                 }
                 drop(w);
+                // Its images' dirs need no watch anymore.
+                self.watch_dirty = true;
             }
         }
         for r in requests {
@@ -169,6 +237,7 @@ impl App {
     fn serve(&mut self, el: &ActiveEventLoop, from: WindowId, r: AppRequest) {
         let init = match r {
             AppRequest::Quit { confirmed } => return self.quit(el, from, confirmed),
+            AppRequest::ReloadConfig => return self.reload_config(Instant::now()),
             AppRequest::NewWindow { profile } => WindowInit::Default {
                 profile,
                 command: None,
@@ -223,15 +292,12 @@ impl ApplicationHandler<UserEvent> for App {
                     self.with_window(el, id, false, |w| w.handle_term_event(pane, ev));
                 }
             }
-            UserEvent::Signal(pane, sig) => {
+            UserEvent::Signals(pane) => {
                 if let Some(id) = self.pane_owner(pane) {
-                    self.with_window(el, id, false, |w| w.handle_signal(pane, sig));
+                    self.with_window(el, id, false, |w| w.handle_signals(pane));
                 }
             }
-            UserEvent::ConfigChanged(id) => self.with_window(el, id, false, |w| {
-                w.config_changed(Instant::now());
-                true
-            }),
+            UserEvent::ConfigChanged => self.config.poke(Instant::now()),
             UserEvent::ImageLoaded(id, path, n, img) => self.with_window(el, id, false, |w| {
                 w.image_loaded(path, n, img);
                 true
@@ -248,7 +314,18 @@ impl ApplicationHandler<UserEvent> for App {
         // Due timers run first, so the only deadline that can be due below is a frame's
         // (one `now` for both: a timer is never seen due without having run).
         let now = Instant::now();
-        let mut next: Option<Instant> = None;
+        if self.config.take_due(now) {
+            self.reload_config(now);
+        }
+        let mut watch = std::mem::take(&mut self.watch_dirty);
+        for (_, w) in self.windows.iter_mut() {
+            watch |= w.take_watch_dirty();
+        }
+        if watch {
+            self.update_watched();
+        }
+        // The app's own timer (the config reload's debounce), then every window's.
+        let mut next: Option<Instant> = self.config.deadline();
         let mut due = false;
         for (_, w) in self.windows.iter_mut() {
             w.on_timers(now);

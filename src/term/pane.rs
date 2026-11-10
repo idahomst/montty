@@ -6,6 +6,7 @@ use std::os::fd::AsRawFd;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Instant;
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
@@ -17,7 +18,9 @@ use alacritty_terminal::tty;
 use alacritty_terminal::vte::ansi::CursorStyle;
 
 use super::PaneId;
-use super::pty_tap::TapPty;
+use super::osc_scan::Signal;
+use super::pty_tap::{SignalQueue, TapPty};
+use super::status::{QUERY_REPLY, QueryLimit};
 use crate::events::{EventSink, UserEvent};
 
 #[derive(Clone)]
@@ -60,6 +63,10 @@ pub struct Pane {
     pub term: Arc<FairMutex<Term<EventProxy>>>,
     pub title: Option<String>,
     sender: EventLoopSender,
+    /// Status and notification sequences the PTY reader found, until the UI takes them.
+    signals: Arc<SignalQueue>,
+    /// Bounds the replies to the status feature query.
+    query_limit: QueryLimit,
     /// A duplicate of the PTY master: stays valid (never a reused fd number)
     /// after the event loop thread drops the `Pty` on child exit.
     master: File,
@@ -154,7 +161,8 @@ impl Pane {
             proxy.clone(),
         )));
 
-        let tap = TapPty::new(pty, id, proxy.sink.clone())?;
+        let signals = Arc::new(SignalQueue::default());
+        let tap = TapPty::new(pty, id, proxy.sink.clone(), signals.clone())?;
         let event_loop = EventLoop::new(term.clone(), proxy, tap, true, false)?;
         let sender = event_loop.channel();
         event_loop.spawn();
@@ -164,6 +172,8 @@ impl Pane {
             term,
             title: None,
             sender,
+            signals,
+            query_limit: QueryLimit::default(),
             master,
             shell_pid,
             runs_command,
@@ -175,6 +185,19 @@ impl Pane {
     pub fn write(&self, bytes: Vec<u8>) {
         if !bytes.is_empty() {
             let _ = self.sender.send(Msg::Input(bytes.into()));
+        }
+    }
+
+    /// The signals found in the pane's output since the last call, oldest first.
+    pub fn take_signals(&self) -> Vec<Signal> {
+        self.signals.take()
+    }
+
+    /// The pane's output asked whether montty reports status (`OSC 7501 ; ?`): write the
+    /// reply, unless output asks too often (see `QueryLimit`).
+    pub fn answer_status_query(&mut self, now: Instant) {
+        if self.query_limit.allow(now) {
+            self.write(QUERY_REPLY.to_vec());
         }
     }
 

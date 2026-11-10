@@ -167,6 +167,8 @@ file changes, and dropped when no pane shows it.
   apply to existing panes.
 - An invalid file keeps its last good version and shows a toast naming the file and line.
 - `config.toml`, including key bindings, reloads the same way.
+- The process has one config store, one watcher and one reload debounce, owned by the app: a reload hands every
+  window the new store, so windows always agree and N windows cost one reload.
 - A session or pane naming a profile that no longer exists falls back to the default profile.
 
 **Startup:** one window, one tab, one pane with the default profile. Command line: `--session <name>`,

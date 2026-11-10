@@ -26,7 +26,8 @@ use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::mem::ManuallyDrop;
 use std::num::NonZeroU32;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -46,11 +47,11 @@ use winit::window::{CursorIcon, WindowId};
 
 use self::blink::Blink;
 use crate::clipboard::{ClipKind, Clipboards, MemClipboards, system_clipboards};
+use crate::config::ConfigError;
 use crate::config::profile::{CursorShapeCfg, Profile};
+use crate::config::shared::Startup;
 use crate::config::store::{ReloadReport, Resolved, Store};
-use crate::config::watch::{Debounce, Watcher, config_watch_dirs};
-use crate::config::{ConfigError, config_dir};
-use crate::events::{EventSink, UserEvent};
+use crate::events::EventSink;
 use crate::font::{FontCache, Metrics, system_db};
 use crate::frame::{FrameScheduler, Schedule};
 use crate::input::Mods;
@@ -531,12 +532,15 @@ pub struct Window {
     pane_profiles: HashMap<PaneId, PaneStyle>,
     /// Missing fonts a toast reported.
     fonts_reported: ReportedFonts,
-    /// The config files; key bindings and chrome colors are read from it as needed.
-    store: Store,
-    /// Watches the config dir; None without one or when watching failed.
-    watcher: Option<Watcher>,
-    /// Coalesces the watcher's events into one reload.
-    debounce: Debounce,
+    /// The config files, as of the last reload (the app owns the live store and hands
+    /// every window the new one, see `config_reloaded`); key bindings and chrome colors
+    /// are read from it as needed.
+    store: Rc<Store>,
+    /// The background image files changed since the app last asked (`take_watch_dirty`):
+    /// it watches them for every window.
+    watch_dirty: bool,
+    /// A new profile's pane and stem: the pane switches to it once a reload has loaded it.
+    pending_profile: Option<(PaneId, String)>,
     toast: Option<Toast>,
     /// Image errors (path, text) that came while another toast was up: shown when that
     /// one goes.
@@ -642,6 +646,7 @@ impl Window {
         event_loop: &ActiveEventLoop,
         init: WindowInit,
         sink: Arc<dyn EventSink>,
+        config: WindowConfig,
     ) -> Result<Window, String> {
         // A session window spawns the session's panes first (see `install_session`); its
         // tab list starts with a placeholder tab (no pane) that they replace. Only when none
@@ -651,8 +656,12 @@ impl Window {
             WindowInit::Session { doc, name, profile } => (profile, None, Some((doc, name))),
         };
         let now = Instant::now();
-        let dir = config_dir();
-        let (store, toast_errors, mut toast) = load_store(dir.as_deref(), now);
+        let WindowConfig {
+            store,
+            errors: toast_errors,
+            startup,
+        } = config;
+        let mut toast = startup_toast(&store, &toast_errors, &startup, now);
         // The first pane runs under the window's default profile, which also sets the
         // UI font and the initial size.
         let first = PaneStyle::new(profile_arg.as_deref().unwrap_or(store.default_stem()));
@@ -701,17 +710,6 @@ impl Window {
         let (window, gl_surface, gl_context, glow) = gl::create(event_loop, attrs)?;
         #[cfg(target_os = "macos")]
         titlebar::keep_bar_presses();
-        let watcher = dir.and_then(|d| {
-            let (w, errs) = start_watcher(&d, window.id(), sink.clone());
-            for e in &errs {
-                eprintln!("montty: config watcher: {e}");
-            }
-            // One toast at a time: the config's own errors come first.
-            if let Some(t) = watcher_toast(&errs, now) {
-                toast.get_or_insert(t);
-            }
-            w
-        });
         if let Some((body, tail)) = profile_arg_problem(
             profile_arg.as_deref(),
             profile_arg.as_deref().is_some_and(|p| store.contains(p)),
@@ -782,8 +780,8 @@ impl Window {
             pane_profiles: HashMap::from([(id, first)]),
             fonts_reported: ReportedFonts::default(),
             store,
-            watcher,
-            debounce: Debounce::default(),
+            watch_dirty: false,
+            pending_profile: None,
             toast,
             pending_images: Vec::new(),
             pending_error: None,
@@ -974,18 +972,28 @@ impl Window {
         !self.close_requested
     }
 
-    /// A status or notification sequence from a pane's output. Returns false when the
-    /// window should close (as `handle_term_event`). The reply to a feature query is
-    /// written from here (the UI thread), never from the PTY thread.
-    pub fn handle_signal(&mut self, pane: PaneId, signal: Signal) -> bool {
-        if !self.panes.contains_key(&pane) {
+    /// The status and notification sequences waiting from `pane`'s output. Returns false
+    /// when the window should close (as `handle_term_event`).
+    pub fn handle_signals(&mut self, pane: PaneId) -> bool {
+        let Some(signals) = self.panes.get(&pane).map(Pane::take_signals) else {
             return true;
+        };
+        for signal in signals {
+            self.handle_signal(pane, signal);
         }
+        self.refresh_looking();
+        true
+    }
+
+    /// One signal from `pane`'s output. The reply to a feature query is written from here
+    /// (the UI thread), never from the PTY thread, and rate-limited per pane: output must
+    /// not be able to make montty type without bound.
+    fn handle_signal(&mut self, pane: PaneId, signal: Signal) {
         let looking = self.looking_at() == Some(pane);
         let effect = match signal {
             Signal::StatusQuery => {
-                if let Some(p) = self.panes.get(&pane) {
-                    p.write(b"\x1b]7501;?\x1b\\".to_vec());
+                if let Some(p) = self.panes.get_mut(&pane) {
+                    p.answer_status_query(Instant::now());
                 }
                 Default::default()
             }
@@ -1007,8 +1015,6 @@ impl Window {
             let title = self.tab_title_of(pane);
             self.notifier.send(&title, &body);
         }
-        self.refresh_looking();
-        true
     }
 
     /// Returns false when the window should close (its last pane exited).
@@ -1091,12 +1097,11 @@ impl Window {
     }
 
     /// The earliest of every timer: the pending frame (when the scheduler deferred it to the
-    /// next refresh), config reload, autosave, toast, cursor blink, bell flash, scrollbar
+    /// next refresh), autosave, toast, cursor blink, bell flash, scrollbar
     /// linger and size labels. `now` is the same instant `on_timers` ran with.
     pub fn next_deadline(&self, now: Instant) -> Option<Instant> {
         [
             self.scheduler.deadline(),
-            self.debounce.deadline(),
             self.autosave_due,
             self.toast.as_ref().map(|t| t.until),
             self.blink_deadline(now),
@@ -1129,16 +1134,8 @@ impl Window {
         }
     }
 
-    /// The watcher saw a change in the config dir: reload once the burst settles.
-    pub fn config_changed(&mut self, now: Instant) {
-        self.debounce.poke(now);
-    }
-
     /// Runs the timers due at `now`: every timer in `next_deadline` but the frame's.
     pub fn on_timers(&mut self, now: Instant) {
-        if self.debounce.take_due(now) {
-            self.reload_config(now);
-        }
         self.autosave_tick(now);
         if self.toast.as_ref().is_some_and(|t| now >= t.until) {
             self.dismiss_toast();
@@ -1199,15 +1196,24 @@ impl Window {
         }
     }
 
-    /// Re-read the config dir. Bindings and chrome colors are read from the store as
-    /// needed, so they apply from the next key or frame.
-    fn reload_config(&mut self, now: Instant) {
+    /// Ask the app to re-read the config dir now (it reloads for every window).
+    pub(super) fn request_reload(&mut self) {
+        self.requests.push(AppRequest::ReloadConfig);
+    }
+
+    /// Whether the background image files changed since the last call: the app then
+    /// watches `image_files` of every window again.
+    pub fn take_watch_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.watch_dirty)
+    }
+
+    /// The app re-read the config dir: `store` is the new one and `report` what changed
+    /// (the store still has what profiles were before). Bindings and chrome colors are
+    /// read from the store as needed, so they apply from the next key or frame.
+    pub fn config_reloaded(&mut self, store: Rc<Store>, report: &ReloadReport, now: Instant) {
         self.ensure_current();
-        let report = self.store.reload();
-        let changed = report.global_changed
-            || !report.changed.is_empty()
-            || !report.added.is_empty()
-            || !report.removed.is_empty();
+        self.store = store;
+        let changed = report.changed_anything();
         if report.global_changed {
             self.schedule();
             #[cfg(target_os = "macos")]
@@ -1228,7 +1234,6 @@ impl Window {
         ) {
             ToastUpdate::Keep => {}
             ToastUpdate::Show(t) => {
-                log_errors(&report.errors);
                 // A config-error toast replaces whatever toast is up: one toast at a time,
                 // and the errors are what the user just caused. (Image toasts queue instead,
                 // because they arrive asynchronously, whenever a decode finishes.)
@@ -1237,15 +1242,20 @@ impl Window {
             }
             ToastUpdate::Hide => self.dismiss_toast(),
         }
-        self.apply_profile_changes(&report);
+        self.apply_profile_changes(report);
         if report.kitty_keyboard_changed {
             self.apply_kitty_option();
         }
-        self.toast_errors = report.errors;
-        // Images whose file changed load again. The watched dirs follow: dirs created since
-        // (profiles/, schemes/, a new symlink's target dir), dirs no longer needed (a removed
-        // link's target dir, the config dir's parent) and the images' dirs.
+        self.toast_errors.clone_from(&report.errors);
+        // Images whose file changed load again (the app watches their dirs again after).
         self.sync_images(true);
+        // A profile made here a moment ago is loaded now: its pane switches to it.
+        if let Some((pane, stem)) = self.pending_profile.take()
+            && self.store.contains(&stem)
+            && self.panes.contains_key(&pane)
+        {
+            self.set_pane_profile(pane, &stem);
+        }
     }
 
     /// `kitty_keyboard` may have changed: every pane's terminal takes it (it drops the
@@ -1775,6 +1785,7 @@ impl Window {
         self.sizes.remove(&id);
         self.pane_profiles.remove(&id);
         self.attention.remove(id);
+        self.notifier.forget(id);
         self.scrolled.remove(&id);
     }
 
@@ -1785,13 +1796,6 @@ impl Window {
             self.mark_scrolled(focused);
             self.schedule();
         }
-    }
-}
-
-/// Print every config error: the toast shows only the first.
-fn log_errors(errors: &[ConfigError]) {
-    for e in errors {
-        eprintln!("montty: {e}");
     }
 }
 
@@ -1854,50 +1858,39 @@ impl FirstPane<'_> {
     }
 }
 
-/// The config store, its files' errors and the startup toast. The files' errors make a
-/// `ConfigReload` toast, which a reload that fixes them hides. A failed first-run write
-/// makes it a `Startup` toast, which stays. Without a config dir (`$HOME` unset) montty
-/// runs on built-in defaults and says so.
-fn load_store(dir: Option<&Path>, now: Instant) -> (Store, Vec<ConfigError>, Option<Toast>) {
-    let Some(dir) = dir else {
-        return (
-            Store::builtin(),
-            Vec::new(),
-            Some(Toast::new(NO_CONFIG_DIR, ToastSource::Startup, now)),
-        );
-    };
-    let home = std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|h| h.is_absolute());
-    let (store, first_run, errors) = Store::load_split(dir, home.as_deref());
-    log_errors(first_run.as_slice());
-    log_errors(&errors);
-    let toast = match first_run {
-        Some(e) => {
-            let all: Vec<ConfigError> = std::iter::once(e).chain(errors.clone()).collect();
-            Toast::from_errors(&all, ToastSource::Startup, now)
-        }
-        None => Toast::from_errors(&errors, ToastSource::ConfigReload, now),
-    };
-    (store, errors, toast)
+/// What a new window takes from the app's config (see `config::shared`).
+pub struct WindowConfig {
+    pub store: Rc<Store>,
+    /// The errors of the last (re)load: shown as a toast, like a reload's.
+    pub errors: Vec<ConfigError>,
+    /// What the load at startup found; empty for every window but the first.
+    pub startup: Startup,
 }
 
-/// Watch the config dir `dir`; each change posts `UserEvent::ConfigChanged` from the
-/// watcher's thread. The errors are everything that couldn't be watched (no watcher at
-/// all, or each dir, with a message): config edits there need a restart.
-fn start_watcher(
-    dir: &Path,
-    id: WindowId,
-    sink: Arc<dyn EventSink>,
-) -> (Option<Watcher>, Vec<String>) {
-    let on_change = move || sink.send(UserEvent::ConfigChanged(id));
-    match Watcher::start(on_change) {
-        Ok(mut w) => {
-            let errs = w.set_watched(&config_watch_dirs(dir));
-            (Some(w), errs)
-        }
-        Err(e) => (None, vec![e]),
+/// A new window's toast for the config's state (all already printed). The files' errors
+/// make a `ConfigReload` toast, which a reload that fixes them hides. A failed first-run
+/// write makes it a `Startup` toast, which stays. Without a config dir (`$HOME` unset)
+/// montty runs on built-in defaults and says so. One toast at a time: a watcher that
+/// couldn't start shows only when the config has nothing to say.
+fn startup_toast(
+    store: &Store,
+    errors: &[ConfigError],
+    startup: &Startup,
+    now: Instant,
+) -> Option<Toast> {
+    if store.dir().as_os_str().is_empty() {
+        return Some(Toast::new(NO_CONFIG_DIR, ToastSource::Startup, now));
     }
+    let toast = match &startup.first_run {
+        Some(e) => {
+            let all: Vec<ConfigError> = std::iter::once(e.clone())
+                .chain(errors.iter().cloned())
+                .collect();
+            Toast::from_errors(&all, ToastSource::Startup, now)
+        }
+        None => Toast::from_errors(errors, ToastSource::ConfigReload, now),
+    };
+    toast.or_else(|| watcher_toast(&startup.watcher, now))
 }
 
 /// The toast for watcher failures `errs` (the first, plus ` (+N more)`); the hint comes

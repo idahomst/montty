@@ -35,7 +35,8 @@ Top-level modules (`src/`):
 - `term/`: `pane.rs` (a pane = shell on a PTY + its `alacritty_terminal` grid, PTY reader thread),
   `snapshot.rs` (copy of the visible cells taken under a brief lock), `colors.rs`, `links.rs`, `grid_point.rs`.
   Signals: `osc_scan.rs` (cheap scanner for OSC 7501 / 9 / 777 / 133 in the PTY byte stream, which alacritty's parser
-  drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner and sends each hit as `UserEvent::Signal`),
+  drops), `pty_tap.rs` (PTY reader wrapper that feeds the scanner; hits wait in the pane's bounded `SignalQueue` and one
+  `UserEvent::Signals` wakes the UI per batch),
   `status.rs` (OSC 7501 agent status parsing, per-pane records, display text; pure, input is untrusted).
 - `render/`: the OpenGL renderer. `atlas.rs` (shelf-packed glyph atlas), `cells.rs` (per-cell instances),
   `rects.rs` (solid rects for chrome and cursor), `shapes.rs` (antialiased strokes for icons: round-capped lines,
@@ -48,7 +49,8 @@ Top-level modules (`src/`):
 - `notify.rs`: optional desktop notifications by spawning `notify-send`, or `osascript` on macOS (rate-limited per
   pane).
 - `config/`: `global.rs` (`config.toml`), `profile.rs`, `scheme.rs` (Tilix JSON, built-ins from `assets/schemes`),
-  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify / FSEvents watcher + debounce).
+  `store.rs` (all files loaded from one directory, last good version kept), `watch.rs` (inotify / FSEvents watcher + debounce),
+  `shared.rs` (the one store, watcher and debounce of the process, owned by `App`; windows hold an `Rc<Store>` snapshot).
 - `session.rs`: saved-session JSON format, names, atomic writes.
 - `clipboard.rs`: CLIPBOARD and PRIMARY (copypasta, X11 or Wayland, read with a timeout off the UI thread; on macOS
   the pasteboard, with PRIMARY in memory).
@@ -80,19 +82,23 @@ Key flows:
 
 - Events: winit event -> `App` -> the right `Window` -> modal, bar, find, overlay, divider or pane. Keys that match a
   binding run an action, otherwise they become bytes written to the PTY immediately, not deferred to a frame.
-- Frame scheduling: the UI never polls. `Window::next_deadline` returns the earliest of every timer (frame, config
-  debounce, autosave, toast, blink, bell, scrollbar, size labels); `Window::on_timers` runs the due ones; `App::about_to_wait`
-  turns the minimum into `WaitUntil`, or `Wait` when there is none. A new timer must be added to both functions and must
-  expire on its own: an idle window must not wake (0 % CPU).
+- Frame scheduling: the UI never polls. `Window::next_deadline` returns the earliest of every window timer (frame,
+  autosave, toast, blink, bell, scrollbar, size labels); `Window::on_timers` runs the due ones; `App::about_to_wait`
+  runs the app's own timer (the config reload's debounce) and turns the minimum of all into `WaitUntil`, or `Wait` when
+  there is none. A new window timer must be added to both functions and must expire on its own: an idle window must not
+  wake (0 % CPU).
 - Rendering: The frame draw (`window/draw.rs`) takes a `Snapshot` of each visible pane under a brief lock, releases it, then does all GPU
   work: one instanced cell draw per pane plus a few for chrome and images. Glyphs go through the per-window atlas.
-- Signals: the PTY reader's tap (`pty_tap.rs` + `osc_scan.rs`) sends `UserEvent::Signal` -> `App` -> the owning
-  `Window` -> `Attention` (`window/attention.rs`) -> dots (`marks.rs`) and, if enabled, `notify.rs`. Status reports
+- Signals: the PTY reader's tap (`pty_tap.rs` + `osc_scan.rs`) queues signals per pane (bounded, repeats dropped: output is
+  untrusted and may flood) and sends one `UserEvent::Signals` per batch -> `App` -> the owning `Window` drains the queue
+  -> `Attention` (`window/attention.rs`) -> dots (`marks.rs`) and, if enabled, `notify.rs`. Status reports
   are stored per pane in `term/status.rs`. Marks have no timers; focusing a pane clears its "not seen yet" marks.
 - Terminal: each pane owns an `alacritty_terminal` `Term` and a PTY reader thread that wakes the UI through a
   `UserEvent`. The UI thread never blocks on PTY I/O.
-- Config: `config::store::Store` loads `config.toml`, `profiles/*.toml` and `schemes/*.json`; the watcher debounces file events
-  into one reload; panes share their profile, so a reload restyles them live. A bad file keeps its last good version
+- Config: `App` owns one `config::shared::SharedConfig`: the `Store` (`config.toml`, `profiles/*.toml`, `schemes/*.json`),
+  the watcher and the debounce that turns file events into one reload. A reload hands every window the new store and
+  the report (`Window::config_reloaded`); a window asks for one with `AppRequest::ReloadConfig`. Panes share their
+  profile, so a reload restyles them live. A bad file keeps its last good version
   and shows a toast.
 - Sessions: a window serializes to a `SessionDoc` (tabs, split trees, per-pane profile and cwd); `restore_last_session`
   autosaves to `sessions/_last.json`.

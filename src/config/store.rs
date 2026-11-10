@@ -37,12 +37,26 @@ pub struct ReloadReport {
     pub errors: Vec<ConfigError>,
 }
 
+impl ReloadReport {
+    /// Whether the reload changed what the store resolves to (not just a file's text).
+    pub fn changed_anything(&self) -> bool {
+        self.global_changed
+            || !self.changed.is_empty()
+            || !self.added.is_empty()
+            || !self.removed.is_empty()
+    }
+}
+
 /// The last good parse of a profile file, and the line of its `scheme` key.
+#[derive(Clone)]
 struct ProfileEntry {
     profile: Profile,
     scheme_line: Option<usize>,
 }
 
+/// `Clone`: the app reloads a copy while windows still read the one they hold (see
+/// `config::shared`); the profiles inside are shared `Arc`s.
+#[derive(Clone)]
 pub struct Store {
     dir: PathBuf,
     home: Option<PathBuf>,
