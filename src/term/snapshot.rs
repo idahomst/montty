@@ -360,6 +360,19 @@ mod tests {
     }
 
     #[test]
+    fn zerowidth_per_cell_is_bounded() {
+        // alacritty_terminal 0.26.0 kept every combining character a program sent for one
+        // cell; see vendor/alacritty_terminal/MONTTY.md.
+        let mut bytes = b"e".to_vec();
+        for _ in 0..10_000 {
+            bytes.extend_from_slice("\u{301}".as_bytes());
+        }
+        let (s, _) = snap(&bytes);
+        assert_eq!(s.zerowidth.len(), 1);
+        assert!(s.zerowidth[0].1.len() <= 16, "{}", s.zerowidth[0].1.len());
+    }
+
+    #[test]
     fn hidden_cursor_is_none() {
         let (s, _) = snap(b"\x1b[?25l");
         assert!(s.cursor.is_none());
