@@ -1,6 +1,6 @@
 [package]
 name = "montty"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.88"
 description = "A tiling terminal emulator inspired by Tilix, without GTK"
@@ -78,8 +78,8 @@ panic = "abort"
 strip = true
 opt-level = 3
 
-# alacritty_terminal 0.26.0 panics (aborts, see profile.release) when a program pushes the kitty keyboard
-# mode 4097 times; vendor/alacritty_terminal has the one-line upstream fix (see its MONTTY.md).
-# Drop the patch once a fixed release is on crates.io.
+# alacritty_terminal 0.26.0 lets a pane's output abort montty (4097 kitty keyboard mode pushes panic; see
+# profile.release) and grow memory without bound (zero-width characters); vendor/alacritty_terminal has the
+# upstream fixes no release carries yet (see its MONTTY.md). Drop the patch once a fixed release is on crates.io.
 [patch.crates-io]
 alacritty_terminal = { path = "vendor/alacritty_terminal" }

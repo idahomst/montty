@@ -43,6 +43,11 @@ impl Notifier {
         true
     }
 
+    /// `pane` is gone: its rate-limit entry goes too.
+    pub fn forget(&mut self, pane: PaneId) {
+        self.last.remove(&pane);
+    }
+
     /// Spawns the notifier and returns at once; a detached thread reaps the child. A missing
     /// binary disables the notifier after one stderr line.
     pub fn send(&mut self, title: &str, body: &str) {

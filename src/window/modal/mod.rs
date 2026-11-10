@@ -5,8 +5,6 @@
 //! (`ui::{menu,panel,textfield,confirm}`); this module opens and routes them
 //! (`content`: what they hold; `paint`: how they look).
 
-use std::time::Instant;
-
 use winit::event::{KeyEvent, MouseButton};
 use winit::window::CursorIcon;
 
@@ -425,7 +423,7 @@ impl Window {
             (MenuAction::OpenSessionMenu, _) => self.open_session_menu(),
             (MenuAction::EditConfig, _) => self.edit_config(),
             (MenuAction::OpenConfigFolder, _) => self.open_config_folder(),
-            (MenuAction::ReloadConfig, _) => self.reload_config(Instant::now()),
+            (MenuAction::ReloadConfig, _) => self.request_reload(),
             (MenuAction::Shortcuts, _) => {
                 self.set_modal(Modal::Panel(shortcuts_panel(&self.store.global().bindings)))
             }

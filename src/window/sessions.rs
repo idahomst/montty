@@ -466,11 +466,12 @@ impl Window {
             }
         }
         self.set_modal(Modal::None);
-        // Loaded now rather than by the watcher, so the pane can switch to it.
-        self.reload_config(Instant::now());
+        // Loaded now rather than by the watcher: the pane switches to it once the app
+        // has reloaded (see `config_reloaded`), right after this event.
         if target_alive(&CloseTarget::Pane(pane), &self.tabs, &self.panes) {
-            self.set_pane_profile(pane, name);
+            self.pending_profile = Some((pane, name.to_string()));
         }
+        self.request_reload();
         self.open_in_editor(dir, &file);
     }
 

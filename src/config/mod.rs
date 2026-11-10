@@ -4,6 +4,7 @@
 pub mod global;
 pub mod profile;
 pub mod scheme;
+pub mod shared;
 pub mod store;
 pub mod watch;
 

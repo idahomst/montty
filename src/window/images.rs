@@ -10,7 +10,6 @@ use std::time::{Duration, Instant, SystemTime};
 use winit::dpi::PhysicalSize;
 
 use super::{Window, resolved_stem_of, watcher_toast};
-use crate::config::watch::{config_watch_dirs, with_files};
 use crate::decoder::decode_in_helper;
 use crate::events::UserEvent;
 use crate::render::image::Rgba8;
@@ -342,33 +341,30 @@ impl Window {
         self.pending_images.retain(|(p, _)| !out.gone.contains(p));
         self.image_errors(out.failed);
         if recheck || self.images.paths() != before {
-            self.update_watched();
+            self.watch_dirty = true;
         }
         if redraw {
             self.schedule();
         }
     }
 
-    /// Watch the config dirs and the images' dirs (for the image files only).
-    pub(super) fn update_watched(&mut self) {
-        let Some(w) = &mut self.watcher else {
-            return;
-        };
+    /// The background image files this window shows: the app watches them (see
+    /// `take_watch_dirty`).
+    pub fn image_files(&self) -> Vec<PathBuf> {
         let dir = self.store.dir();
-        let files: Vec<PathBuf> = self.images.paths().iter().map(|p| dir.join(p)).collect();
-        let errs = w.set_watched(&with_files(config_watch_dirs(dir), &files));
-        for e in &errs {
-            eprintln!("montty: config watcher: {e}");
-        }
-        // Only dirs that newly fail come back (no toast per reload); a more important
-        // toast stays up.
+        self.images.paths().iter().map(|p| dir.join(p)).collect()
+    }
+
+    /// Dirs the app's watcher newly fails to watch (`errs`, already printed): a toast,
+    /// unless a more important one is up.
+    pub fn watch_failed(&mut self, errs: &[String]) {
         let busy = self.toast.as_ref().is_some_and(|t| {
             !matches!(
                 t.source,
                 ToastSource::Image | ToastSource::Font | ToastSource::Watcher
             )
         });
-        if !busy && let Some(t) = watcher_toast(&errs, Instant::now()) {
+        if !busy && let Some(t) = watcher_toast(errs, Instant::now()) {
             self.toast = Some(t);
             self.schedule();
         }

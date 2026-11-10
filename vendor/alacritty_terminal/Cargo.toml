@@ -42,6 +42,10 @@ serde = [
 name = "alacritty_terminal"
 path = "src/lib.rs"
 
+[dependencies.arrayvec]
+version = "0.7.2"
+features = ["serde"]
+
 [dependencies.base64]
 version = "0.22.0"
 
